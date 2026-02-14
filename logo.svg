@@ -1,136 +1,112 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Rounded Square Background -->
+  <rect width="512" height="512" rx="112" fill="#1a1a2e"/>
+  
   <defs>
-    <linearGradient id="clawGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#E84D3D;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#C0392B;stop-opacity:1" />
+    <!-- Organic Shell Gradient -->
+    <linearGradient id="shell_grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF8E8E" />
+      <stop offset="50%" stop-color="#FF5252" />
+      <stop offset="100%" stop-color="#C0392B" />
     </linearGradient>
-    <linearGradient id="clawGradLight" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#F1948A;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#E84D3D;stop-opacity:1" />
+    
+    <!-- K8s Gem Gradient -->
+    <linearGradient id="gem_grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5B9AFF" />
+      <stop offset="100%" stop-color="#326CE5" />
     </linearGradient>
-    <linearGradient id="armGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#E84D3D;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#B03A2E;stop-opacity:1" />
+
+    <!-- Specular Highlight -->
+    <linearGradient id="specular" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="white" stop-opacity="0.7" />
+      <stop offset="40%" stop-color="white" stop-opacity="0.1" />
+      <stop offset="100%" stop-color="white" stop-opacity="0" />
     </linearGradient>
-    <linearGradient id="kubeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#326CE5;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#2857B6;stop-opacity:1" />
-    </linearGradient>
-    <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%">
-      <feDropShadow dx="2" dy="4" stdDeviation="6" flood-color="#00000033"/>
+
+    <!-- Rim Light -->
+    <filter id="rimLight" x="-20%" y="-20%" width="140%" height="140%">
+      <feFlood flood-color="white" flood-opacity="0.3" result="lightColor"/>
+      <feComposite in="lightColor" in2="SourceAlpha" operator="in" result="lightInAlpha"/>
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feOffset dx="-2" dy="-2" result="offsetBlur"/>
+      <feComposite in="offsetBlur" in2="SourceAlpha" operator="out" result="rimEffect"/>
     </filter>
   </defs>
 
-  <!-- Background circle -->
-  <circle cx="256" cy="256" r="240" fill="url(#kubeGrad)" filter="url(#shadow)"/>
-  <circle cx="256" cy="256" r="222" fill="none" stroke="#ffffff12" stroke-width="2.5"/>
+  <g transform="translate(256, 280)">
+    <!-- Main Claw Body (The "Carpus") -->
+    <g>
+      <path d="M-60 100 C-75 160 -50 190 0 195 C50 190 75 160 60 100 L-60 100" fill="url(#shell_grad)"/>
+      <!-- Texture: Mottling -->
+      <circle cx="-25" cy="150" r="4" fill="#8E2417" opacity="0.3"/>
+      <circle cx="15" cy="165" r="3" fill="#8E2417" opacity="0.4"/>
+      <circle cx="40" cy="140" r="2" fill="#8E2417" opacity="0.2"/>
+      <!-- Joint Segmentation -->
+      <path d="M-55 125 C-20 135 20 135 55 125" stroke="#8E2417" stroke-width="3" opacity="0.6"/>
+      <path d="M-50 150 C-20 158 20 158 50 150" stroke="#8E2417" stroke-width="2" opacity="0.4"/>
+    </g>
+    
+    <!-- Left Pincer (The Crusher - Heavier, Blunter) -->
+    <g>
+      <path d="M-45 85 
+               C-140 70 -220 -30 -200 -125 
+               C-190 -180 -120 -185 -100 -140 
+               C-85 -110 -40 -30 -15 65 Z" fill="url(#shell_grad)"/>
+      <!-- Crusher Teeth (Large, blunt mounds) -->
+      <path d="M-55 35 C-70 30 -85 20 -95 5" stroke="#C0392B" stroke-width="12" stroke-linecap="round" opacity="0.5"/>
+      <path d="M-95 -10 C-105 -25 -115 -45 -120 -70" stroke="#C0392B" stroke-width="10" stroke-linecap="round" opacity="0.4"/>
+      <!-- Highlight & Rim -->
+      <path d="M-170 -100 C-180 -130 -155 -160 -120 -140" stroke="url(#specular)" stroke-width="22" stroke-linecap="round"/>
+      <!-- Texture -->
+      <circle cx="-160" cy="-40" r="3" fill="#8E2417" opacity="0.3"/>
+      <circle cx="-130" cy="-80" r="2" fill="#8E2417" opacity="0.2"/>
+    </g>
 
-  <!-- Kubernetes-style heptagon outline (subtle) -->
-  <polygon points="256,56 366,102 414,208 396,326 298,404 214,404 116,326 98,208 146,102"
-           fill="none" stroke="#ffffff15" stroke-width="2" stroke-linejoin="round"/>
+    <!-- Right Pincer (The Nipper - Sharper, Serrated) -->
+    <g>
+      <path d="M45 85 
+               C140 70 220 -30 200 -125 
+               C190 -180 120 -185 100 -140 
+               C85 -110 45 -30 15 65 Z" fill="url(#shell_grad)"/>
+      <!-- Nipper Teeth (Sharp, fine serrations) -->
+      <g opacity="0.5" stroke="#C0392B" stroke-width="4" stroke-linecap="round">
+        <path d="M60 40 L75 35 M70 25 L85 20 M80 10 L95 5 M90 -5 L105 -10 M100 -20 L115 -25 M110 -35 L125 -40"/>
+      </g>
+      <!-- Highlight & Rim -->
+      <path d="M170 -100 C180 -130 155 -160 120 -140" stroke="url(#specular)" stroke-width="22" stroke-linecap="round"/>
+      <!-- Texture -->
+      <circle cx="160" cy="-40" r="3" fill="#8E2417" opacity="0.3"/>
+      <circle cx="130" cy="-80" r="2" fill="#8E2417" opacity="0.2"/>
+    </g>
 
-  <!-- Arm / base of claw -->
-  <path d="M 218,390 Q 225,340 234,295 Q 240,270 256,258 Q 272,270 278,295 Q 287,340 294,390 Q 260,405 218,390 Z"
-        fill="url(#armGrad)" stroke="#A93226" stroke-width="2.5" stroke-linejoin="round"/>
-  <!-- Arm segments -->
-  <ellipse cx="256" cy="355" rx="32" ry="4" fill="#A9322640"/>
-  <ellipse cx="256" cy="328" rx="26" ry="3.5" fill="#A9322640"/>
-  <ellipse cx="256" cy="302" rx="20" ry="3" fill="#A9322640"/>
+    <!-- The K8s Core: Crystalline Hexagon -->
+    <g transform="translate(0, -35)">
+      <path d="M0 -70 L60 -35 L60 35 L0 70 L-60 35 L-60 -35 Z" fill="url(#gem_grad)"/>
+      <!-- Facets for depth -->
+      <path d="M0 -70 L60 -35 L0 0 Z" fill="white" opacity="0.12"/>
+      <path d="M60 35 L0 70 L0 0 Z" fill="black" opacity="0.12"/>
+      <path d="M-60 35 L0 70 L0 0 Z" fill="black" opacity="0.18"/>
+      <!-- Internal Nodes -->
+      <circle cx="0" cy="0" r="20" fill="white" opacity="0.2">
+        <animate attributeName="opacity" values="0.1;0.4;0.1" dur="2.5s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="0" cy="-48" r="10" fill="white"/>
+      <circle cx="42" cy="24" r="10" fill="white"/>
+      <circle cx="-42" cy="24" r="10" fill="white"/>
+      <!-- Tech Trace Lines -->
+      <path d="M0 -48 L0 -20 M42 24 L18 10 M-42 24 L-18 10" stroke="white" stroke-width="6" stroke-linecap="round"/>
+    </g>
 
-  <!-- Left pincer - fat lobster claw shape -->
-  <path d="M 250,260
-           Q 228,240 195,200
-           Q 162,160 140,125
-           Q 125,100 120,82
-           Q 115,60 135,52
-           Q 158,44 178,62
-           Q 198,82 210,110
-           Q 222,140 230,168
-           Q 238,195 244,225
-           Q 247,242 250,260 Z"
-        fill="url(#clawGrad)" stroke="#A93226" stroke-width="2.5" stroke-linejoin="round"/>
-  <!-- Left pincer bulge (lobster claws are fat at the middle) -->
-  <path d="M 230,220 Q 200,185 175,148 Q 155,118 148,98
-           Q 142,78 155,72 Q 170,66 182,82
-           Q 198,105 212,140 Q 224,170 232,205 Z"
-        fill="url(#clawGradLight)" opacity="0.4"/>
-  <!-- Left pincer tip bumps -->
-  <circle cx="127" cy="72" r="7" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
-  <circle cx="138" cy="57" r="6" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
-  <circle cx="152" cy="49" r="5.5" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
-
-  <!-- Right pincer - fat lobster claw shape (mirrored) -->
-  <path d="M 262,260
-           Q 284,240 317,200
-           Q 350,160 372,125
-           Q 387,100 392,82
-           Q 397,60 377,52
-           Q 354,44 334,62
-           Q 314,82 302,110
-           Q 290,140 282,168
-           Q 274,195 268,225
-           Q 265,242 262,260 Z"
-        fill="url(#clawGrad)" stroke="#A93226" stroke-width="2.5" stroke-linejoin="round"/>
-  <!-- Right pincer bulge -->
-  <path d="M 282,220 Q 312,185 337,148 Q 357,118 364,98
-           Q 370,78 357,72 Q 342,66 330,82
-           Q 314,105 300,140 Q 288,170 280,205 Z"
-        fill="url(#clawGradLight)" opacity="0.4"/>
-  <!-- Right pincer tip bumps -->
-  <circle cx="385" cy="72" r="7" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
-  <circle cx="374" cy="57" r="6" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
-  <circle cx="360" cy="49" r="5.5" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
-
-  <!-- Joint at top of arm -->
-  <ellipse cx="256" cy="260" rx="20" ry="15" fill="#D35400" stroke="#A93226" stroke-width="2"/>
-  <ellipse cx="256" cy="258" rx="13" ry="9" fill="#E67E22" opacity="0.45"/>
-
-  <!-- Kubernetes wheel at joint -->
-  <g transform="translate(256,260)" opacity="0.95">
-    <circle cx="0" cy="0" r="8" fill="#ffffff" opacity="0.9"/>
-    <!-- 7 spokes like K8s logo -->
-    <line x1="0" y1="-8" x2="0" y2="-12.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-    <line x1="7.2" y1="-3.2" x2="11.2" y2="-5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-    <line x1="6" y1="5.6" x2="9.4" y2="8.8" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-    <line x1="-1.8" y1="7.8" x2="-2.8" y2="12.2" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-    <line x1="-7.4" y1="2.8" x2="-11.6" y2="4.4" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-    <line x1="-5.4" y1="-5.8" x2="-8.4" y2="-9.1" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
-    <circle cx="0" cy="0" r="4" fill="url(#kubeGrad)"/>
+    <!-- Joint "Spikes" (Small biological details) -->
+    <path d="M-50 85 L-65 75 M-40 65 L-55 55" stroke="#C0392B" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+    <path d="M50 85 L65 75 M40 65 L55 55" stroke="#C0392B" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
   </g>
 
-  <!-- Cartoon eyes on outer curve of pincers -->
-  <!-- Left eye - on the fat part of the left pincer -->
-  <g transform="translate(180,135)">
-    <ellipse cx="0" cy="0" rx="16" ry="18" fill="white" stroke="#A93226" stroke-width="2"/>
-    <ellipse cx="4" cy="2" rx="8" ry="10" fill="#2C3E50"/>
-    <circle cx="6" cy="-1" r="4" fill="white"/>
-    <!-- Tiny eyebrow -->
-    <path d="M -10,-14 Q 0,-20 10,-14" fill="none" stroke="#8B1A1A" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Delightful Bubbles & Data Particles -->
+  <g opacity="0.4">
+    <circle cx="110" cy="110" r="5" fill="white"/>
+    <circle cx="430" cy="160" r="8" fill="white"/>
+    <circle cx="80" cy="400" r="4" fill="#5B9AFF"/>
+    <circle cx="450" cy="420" r="6" fill="#FF8E8E"/>
   </g>
-  <!-- Right eye - on the fat part of the right pincer -->
-  <g transform="translate(332,135)">
-    <ellipse cx="0" cy="0" rx="16" ry="18" fill="white" stroke="#A93226" stroke-width="2"/>
-    <ellipse cx="-4" cy="2" rx="8" ry="10" fill="#2C3E50"/>
-    <circle cx="-6" cy="-1" r="4" fill="white"/>
-    <!-- Tiny eyebrow -->
-    <path d="M -10,-14 Q 0,-20 10,-14" fill="none" stroke="#8B1A1A" stroke-width="2.5" stroke-linecap="round"/>
-  </g>
-
-  <!-- Sparkle between open pincers -->
-  <g transform="translate(256,135)" opacity="0.85">
-    <line x1="0" y1="-14" x2="0" y2="14" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="-14" y1="0" x2="14" y2="0" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-    <line x1="-9" y1="-9" x2="9" y2="9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
-    <line x1="9" y1="-9" x2="-9" y2="9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
-  </g>
-
-  <!-- Text banner at bottom -->
-  <text x="256" y="450" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-        font-size="44" font-weight="700" fill="white" letter-spacing="4">
-    KUBECLAW
-  </text>
-  <text x="256" y="475" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-        font-size="13" font-weight="400" fill="#ffffffaa" letter-spacing="6">
-    OPENCLAW DEVPODS
-  </text>
 </svg>
