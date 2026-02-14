@@ -152,7 +152,7 @@ spec:
                   FULL_MESSAGE="${CONTEXT_BLOCK}${SKILL}"
 
                   STEP_OUTPUT=$(kubectl exec -n "$NS" "$POD" -c agent -- \
-                    clawdbot agent \
+                    openclaw agent \
                       --agent "$AGENT_ID" \
                       --session-id "$SESSION_ID" \
                       --message "$FULL_MESSAGE" \
@@ -210,7 +210,7 @@ spec:
                       git diff --cached --quiet || \
                       (git commit -m 'docs: add {{ $wfName }} report ${DATE}
 
-                  Co-Authored-By: {{ $agentId }} <{{ $agentId }}@clawdbot.local>' && \
+                  Co-Authored-By: {{ $agentId }} <{{ $agentId }}@openclaw.local>' && \
                       git push origin {{ $reportBranch }})" \
                     2>&1 || echo "WARN: report commit/push failed"
                   {{- end }}

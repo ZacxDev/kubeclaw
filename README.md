@@ -3,13 +3,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Helm](https://img.shields.io/badge/Helm-v3-blue)](https://helm.sh)
 
-A Helm chart for deploying [Clawdbot](https://github.com/ZacxDev/clawdbot) AI agent devpods on Kubernetes.
+A Helm chart for deploying [OpenClaw](https://github.com/ZacxDev/openclaw-image) AI agent devpods on Kubernetes.
 
 Reduces deploying a new agent from ~8 files across 3 directories to **2 files**: a HelmRelease values file + a SOPS-encrypted secret.
 
 ## What is this?
 
-KubeClaw deploys **Clawdbot agent pods** — long-running AI agents that connect to Matrix/Telegram, clone git repos, execute skills, and run scheduled workflows. Each agent gets its own namespace, persistent storage, RBAC, and service.
+KubeClaw deploys **OpenClaw agent pods** — long-running AI agents that connect to Matrix/Telegram, clone git repos, execute skills, and run scheduled workflows. Each agent gets its own namespace, persistent storage, RBAC, and service.
 
 **Key features:**
 - One-file agent deployment (all config in HelmRelease values)
@@ -22,7 +22,7 @@ KubeClaw deploys **Clawdbot agent pods** — long-running AI agents that connect
 
 - Kubernetes 1.27+
 - Helm 3.x
-- A Clawdbot container image (see [clawdbot](https://github.com/ZacxDev/clawdbot) for building your own)
+- An OpenClaw container image (see [openclaw-image](https://github.com/ZacxDev/openclaw-image) for building your own)
 - SOPS + Age for secret encryption (optional, for FluxCD)
 - `helm-unittest` plugin for running tests (optional, for development)
 
@@ -30,7 +30,7 @@ KubeClaw deploys **Clawdbot agent pods** — long-running AI agents that connect
 
 ```bash
 # Set your image in values or override at install time
-helm install myagent . -f examples/standard.yaml --set image.repository=your-registry/clawdbot
+helm install myagent . -f examples/standard.yaml --set image.repository=your-registry/openclaw
 ```
 
 ## Usage with FluxCD
@@ -84,10 +84,10 @@ spec:
 
 The chart creates:
 - **Namespace** `devpod-{agentName}` (optional)
-- **Deployment** with startup script that clones repos, sets up SSH/credentials, injects secrets via `jq`, runs `clawdbot gateway`
+- **Deployment** with startup script that clones repos, sets up SSH/credentials, injects secrets via `jq`, runs `openclaw gateway`
 - **Service** (ClusterIP on port 18789)
 - **PVC** for persistent data (`/data`)
-- **ConfigMap** with `clawdbot.json` and `repos.json`
+- **ConfigMap** with `openclaw.json` and `repos.json`
 - **ConfigMap** for skill `.md` files (if any)
 - **ServiceAccount** + **Role/RoleBinding** (namespace reader)
 - **ClusterRoleBinding** to cluster-admin (if `rbac.clusterAdmin.enabled`)
@@ -97,7 +97,7 @@ When workflows are defined, the chart also creates:
 - **ConfigMap** per workflow (inline step skills)
 - **ServiceAccount** + **Role/RoleBinding** for pod exec (shared across all workflows)
 
-Secret tokens (`MATRIX_ACCESS_TOKEN`, etc.) are injected at runtime via environment variables from the referenced Secret, then merged into `clawdbot.json` by `jq` in the startup script.
+Secret tokens (`MATRIX_ACCESS_TOKEN`, etc.) are injected at runtime via environment variables from the referenced Secret, then merged into `openclaw.json` by `jq` in the startup script.
 
 ## Values Reference
 
@@ -112,7 +112,7 @@ Secret tokens (`MATRIX_ACCESS_TOKEN`, etc.) are injected at runtime via environm
 | Value | Default | Description |
 |-------|---------|-------------|
 | `agentDisplayName` | `"{agentName} Dev"` | Human-readable name in Matrix/config |
-| `agent.id` | `agentName` | Agent ID in clawdbot.json |
+| `agent.id` | `agentName` | Agent ID in openclaw.json |
 | `agent.workspace` | First repo path or `/data/workspace` | Working directory |
 | `agent.model.primary` | `anthropic/claude-sonnet-4` | Claude model |
 | `agent.maxConcurrent` | `4` | Max concurrent sessions |
@@ -207,8 +207,8 @@ Expected secret keys: `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN`
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `rawConfig` | `{}` | Full clawdbot.json override (bypasses templating) |
-| `image.repository` | `your-registry/clawdbot` | Container image |
+| `rawConfig` | `{}` | Full openclaw.json override (bypasses templating) |
+| `image.repository` | `your-registry/openclaw` | Container image |
 | `image.tag` | `latest` | Image tag |
 
 ## Workflows
@@ -276,7 +276,7 @@ Steps run sequentially. Each step:
 1. Gets a unique session ID (`{workflow}-{timestamp}-{step}`) to prevent context accumulation
 2. Loads skill content from ConfigMap (inline) or agent filesystem (skillRef)
 3. Prepends context variables to the skill message
-4. Executes via `clawdbot agent --session-id ... --message ... --timeout ...`
+4. Executes via `openclaw agent --session-id ... --message ... --timeout ...`
 5. Saves output to `$OUTPUT_DIR/{step}.txt`
 6. On failure: sends error notification (if Telegram configured) and exits
 
@@ -347,7 +347,7 @@ helm template test . -f examples/workflow-product-iteration.yaml
 | File | Tests | Coverage |
 |------|-------|---------|
 | `tests/deployment_test.yaml` | 15 | Image, resources, probes, volumes, conditionals |
-| `tests/configmap_test.yaml` | 8 | clawdbot.json generation, agent config |
+| `tests/configmap_test.yaml` | 8 | openclaw.json generation, agent config |
 | `tests/rbac_test.yaml` | 12 | SA, Role, RoleBinding, ClusterRoleBinding |
 | `tests/pvc_test.yaml` | 5 | Persistence, storageClass, existingClaim |
 | `tests/configmap-skills_test.yaml` | 4 | Skill file ConfigMap |

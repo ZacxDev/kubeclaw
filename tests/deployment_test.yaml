@@ -28,18 +28,18 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: your-registry/clawdbot:latest
+          pattern: your-registry/openclaw:latest
         template: templates/deployment.yaml
 
   - it: should use custom image when set
     set:
       image:
-        repository: custom-registry/clawdbot
+        repository: custom-registry/openclaw
         tag: v1.0.0
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: "custom-registry/clawdbot:v1.0.0"
+          value: "custom-registry/openclaw:v1.0.0"
         template: templates/deployment.yaml
 
   - it: should set resource requests and limits

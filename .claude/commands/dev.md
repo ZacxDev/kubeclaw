@@ -19,7 +19,7 @@ kubeclaw/
 │   ├── _helpers.tpl           # Helper functions
 │   ├── deployment.yaml        # Agent pod (283 lines, most complex)
 │   ├── cronjob-workflow.yaml  # Workflow CronJobs (243 lines)
-│   ├── configmap.yaml         # clawdbot.json config
+│   ├── configmap.yaml         # openclaw.json config
 │   ├── configmap-skills.yaml  # Skill files ConfigMap
 │   ├── configmap-workflow-skills.yaml
 │   ├── configmap-extra.yaml   # Extra ConfigMaps
@@ -323,7 +323,7 @@ Version bump and release workflow.
    - Patch: bug fixes, doc updates (0.2.0 → 0.2.1)
    - Minor: new features, new templates (0.2.0 → 0.3.0)
    - Major: breaking changes (0.2.0 → 1.0.0)
-3. **Update appVersion** if the clawdbot image tag changed
+3. **Update appVersion** if the openclaw image tag changed
 4. **Commit**: `git commit -m "chore: bump kubeclaw to v{version}"`
 5. **Push**: `git push origin trunk`
 

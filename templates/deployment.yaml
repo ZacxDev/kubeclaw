@@ -77,9 +77,9 @@ spec:
               fi
 
               # --- Skills ---
-              mkdir -p /root/.clawdbot/skills /root/.clawdbot/cron
+              mkdir -p /root/.openclaw/skills /root/.openclaw/cron
               if [ -d /config/skills ]; then
-                cp /config/skills/*.md /root/.clawdbot/skills/ 2>/dev/null || true
+                cp /config/skills/*.md /root/.openclaw/skills/ 2>/dev/null || true
               fi
 
               # --- OAuth credentials ---
@@ -135,8 +135,8 @@ spec:
               sops --version 2>/dev/null || true
               {{- end }}
 
-              # --- Generate clawdbot.json with secrets injected ---
-              cat /config/clawdbot.json | jq \
+              # --- Generate openclaw.json with secrets injected ---
+              cat /config/openclaw.json | jq \
                 --arg matrix_token "$MATRIX_ACCESS_TOKEN" \
                 --arg telegram_token "$TELEGRAM_BOT_TOKEN" \
                 --arg hooks_token "$HOOKS_TOKEN" \
@@ -144,17 +144,17 @@ spec:
                  .channels.telegram.botToken = $telegram_token |
                  .hooks.token = $hooks_token |
                  .gateway.auth.token = $hooks_token' \
-                > /root/.clawdbot/clawdbot.json
-              chmod 600 /root/.clawdbot/clawdbot.json
+                > /root/.openclaw/openclaw.json
+              chmod 600 /root/.openclaw/openclaw.json
 
               # --- Initialize channels ---
-              echo "[$(date -Iseconds)] Running clawdbot doctor --fix..."
-              clawdbot doctor --fix || echo "Doctor exited with $?, continuing..."
+              echo "[$(date -Iseconds)] Running openclaw doctor --fix..."
+              openclaw doctor --fix || echo "Doctor exited with $?, continuing..."
 
               # --- Gateway restart loop ---
               while true; do
-                echo "[$(date -Iseconds)] Starting clawdbot gateway..."
-                clawdbot gateway --bind lan || echo "[$(date -Iseconds)] Exited with $?, restarting..."
+                echo "[$(date -Iseconds)] Starting openclaw gateway..."
+                openclaw gateway --bind lan || echo "[$(date -Iseconds)] Exited with $?, restarting..."
                 sleep 5
               done
           ports:

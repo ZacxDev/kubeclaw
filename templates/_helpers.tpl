@@ -83,7 +83,7 @@ Common labels
 helm.sh/chart: {{ include "kubeclaw.chart" . }}
 {{ include "kubeclaw.selectorLabels" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: clawdbot-devpods
+app.kubernetes.io/part-of: openclaw-devpods
 {{- end }}
 
 {{/*
@@ -131,7 +131,7 @@ app.kubernetes.io/name: devpod
 app.kubernetes.io/instance: {{ include "kubeclaw.fullname" . }}
 app.kubernetes.io/component: workflow
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: clawdbot-devpods
+app.kubernetes.io/part-of: openclaw-devpods
 {{- end }}
 
 {{/*

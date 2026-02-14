@@ -22,7 +22,7 @@ tests:
   - it: should use agentName as agent ID by default
     asserts:
       - matchRegex:
-          path: data["clawdbot.json"]
+          path: data["openclaw.json"]
           pattern: '"id":\s*"testbot"'
 
   - it: should use custom agent ID when set
@@ -31,13 +31,13 @@ tests:
         id: custom-id
     asserts:
       - matchRegex:
-          path: data["clawdbot.json"]
+          path: data["openclaw.json"]
           pattern: '"id":\s*"custom-id"'
 
   - it: should use default workspace path
     asserts:
       - matchRegex:
-          path: data["clawdbot.json"]
+          path: data["openclaw.json"]
           pattern: "/data/workspace"
 
   - it: should use first repo path as workspace
@@ -49,7 +49,7 @@ tests:
             branch: "main"
     asserts:
       - matchRegex:
-          path: data["clawdbot.json"]
+          path: data["openclaw.json"]
           pattern: "/data/repos/myrepo"
 
   - it: should use rawConfig when set
@@ -60,7 +60,7 @@ tests:
           list: []
     asserts:
       - matchRegex:
-          path: data["clawdbot.json"]
+          path: data["openclaw.json"]
           pattern: '"custom"'
 
   - it: should generate repos.json

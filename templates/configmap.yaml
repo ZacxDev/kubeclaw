@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "kubeclaw.labels" . | nindent 4 }}
 data:
-  clawdbot.json: |
+  openclaw.json: |
     {{- if .Values.rawConfig }}
     {{ .Values.rawConfig | toJson | indent 4 }}
     {{- else }}
@@ -83,7 +83,7 @@ data:
             "wakeMode": "now",
             "name": {{ include "kubeclaw.displayName" . | quote }},
             "sessionKey": "hook:element:{{`{{timestamp}}`}}",
-            "messageTemplate": {{ printf "FIRST: Read /root/.clawdbot/skills/%s.md for project context.\n\nElement reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}\n\n**Instruction:** {{instruction}}" (include "kubeclaw.agentId" .) | quote }},
+            "messageTemplate": {{ printf "FIRST: Read /root/.openclaw/skills/%s.md for project context.\n\nElement reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}\n\n**Instruction:** {{instruction}}" (include "kubeclaw.agentId" .) | quote }},
             "deliver": false
           }
           {{- end }}

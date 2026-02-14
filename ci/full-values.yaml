@@ -2,7 +2,7 @@ agentName: fullbot
 agentDisplayName: "Full Test Bot"
 
 image:
-  repository: your-registry/clawdbot
+  repository: your-registry/openclaw
   tag: v1.2.3
   pullPolicy: IfNotPresent
 

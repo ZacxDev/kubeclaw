@@ -8,7 +8,7 @@ agentDisplayName: ""
 
 image:
   # -- Container image repository
-  repository: your-registry/clawdbot
+  repository: your-registry/openclaw
   # -- Container image tag
   tag: latest
   # -- Image pull policy
@@ -30,7 +30,7 @@ git:
   #   path: "/data/repos/repo"
   #   branch: "main"
 
-# -- Agent configuration for clawdbot.json
+# -- Agent configuration for openclaw.json
 agent:
   # -- Agent ID. Defaults to agentName if empty.
   id: ""
@@ -86,8 +86,8 @@ tools:
 gateway:
   # -- Gateway mode
   mode: "local"
-  # -- Callback URL for the main clawdbot gateway (for result posting).
-  # Set to the main clawdbot service URL if agents need to report back.
+  # -- Callback URL for the main openclaw gateway (for result posting).
+  # Set to the main openclaw service URL if agents need to report back.
   callbackUrl: ""
 
 # -- Commands configuration
@@ -159,7 +159,7 @@ extraVolumeMounts: []
 # -- Extra environment variables
 extraEnv: []
 
-# -- Full clawdbot.json override. When set, bypasses all templated config generation.
+# -- Full openclaw.json override. When set, bypasses all templated config generation.
 # The secret fields are still injected via jq at runtime.
 rawConfig: {}
 

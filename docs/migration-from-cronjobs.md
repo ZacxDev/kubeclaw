@@ -41,7 +41,7 @@ grep -rl "kind: CronJob" clusters/
 #### Pod Discovery
 ```yaml
 # Before: Manual in script
-POD=$(kubectl get pods -n clawdbot -l app.kubernetes.io/name=clawdbot ...)
+POD=$(kubectl get pods -n openclaw -l app.kubernetes.io/name=openclaw ...)
 
 # After: Automatic — KubeClaw uses app.kubernetes.io/instance label
 # No action needed
@@ -60,8 +60,8 @@ workflows:
 
 #### Agent Invocation
 ```yaml
-# Before: Manual clawdbot agent call
-kubectl exec "$POD" -- clawdbot agent \
+# Before: Manual openclaw agent call
+kubectl exec "$POD" -- openclaw agent \
   --agent promptver-dev \
   --session-id "generate-ideas-$(date +%Y%m%d-%H%M%S)" \
   --message "..." \
@@ -117,7 +117,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: generate-ideas
-  namespace: clawdbot
+  namespace: openclaw
 spec:
   schedule: "0 10 */3 * *"
   concurrencyPolicy: Forbid
@@ -142,7 +142,7 @@ spec:
                 - -c
                 - |
                   # 120+ lines of shell script:
-                  # pod discovery, git pull, clawdbot agent calls,
+                  # pod discovery, git pull, openclaw agent calls,
                   # telegram notification with retry,
                   # git commit/push, error handling...
 ```

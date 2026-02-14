@@ -17,7 +17,7 @@ tests:
           schedule: "0 10 * * *"
           steps:
             - name: step1
-              skillRef: "/root/.clawdbot/skills/test.md"
+              skillRef: "/root/.openclaw/skills/test.md"
     asserts:
       - hasDocuments:
           count: 0

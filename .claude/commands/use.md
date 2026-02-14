@@ -1,12 +1,12 @@
 ---
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 argument-hint: <deploy|workflow|debug|template> [args]
-description: Deploy and manage Clawdbot agent devpods with KubeClaw
+description: Deploy and manage OpenClaw agent devpods with KubeClaw
 ---
 
 # KubeClaw Usage Skill
 
-You are helping a user deploy and manage Clawdbot AI agent devpods using the KubeClaw Helm chart.
+You are helping a user deploy and manage OpenClaw AI agent devpods using the KubeClaw Helm chart.
 
 ## Chart Location
 
@@ -164,7 +164,7 @@ These are automatically available as environment variables in workflow CronJobs:
 - Use `skill:` for inline instructions, `skillRef:` for existing skill files on the agent
 - Steps execute sequentially — each step's output is available to the next via `$OUTPUT_DIR`
 - Set `notify: true` on a step to send its output to Telegram
-- Reports are auto-committed with `Co-Authored-By: Clawdbot` footer
+- Reports are auto-committed with `Co-Authored-By: OpenClaw` footer
 - Use `suspend: true` to temporarily disable a workflow without deleting it
 
 ### Preview
@@ -213,7 +213,7 @@ KUBECONFIG=~/workspace/homelab-talos/{cluster}-kubeconfig kubectl get jobs -n de
 
 ### Service Discovery
 
-Agent pods expose a clawdbot gateway on port 18789:
+Agent pods expose a openclaw gateway on port 18789:
 - Internal: `{agent}-devpod.devpod-{agent}.svc:18789`
 - Workflow CronJobs use `kubectl exec` into the running pod, not the service
 
@@ -261,7 +261,7 @@ helm template myagent . -f examples/standard.yaml
 | `agent.workspace` | string | first repo path | Working directory |
 | `agent.maxConcurrent` | int | `4` | Max concurrent sessions |
 | `agent.model.primary` | string | `anthropic/claude-sonnet-4` | AI model |
-| `image.repository` | string | `your-registry/clawdbot` | Container image |
+| `image.repository` | string | `your-registry/openclaw` | Container image |
 | `image.tag` | string | `latest` | Image tag |
 | `git.repos` | list | `[]` | Git repos to clone `[{url, path, branch}]` |
 | `skills` | map | `{}` | Skill files `{filename.md: content}` |
