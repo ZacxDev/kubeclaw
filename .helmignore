@@ -7,3 +7,5 @@
 .DS_Store
 examples/
 README.md
+.claude/
+docs/
