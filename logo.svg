@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="clawGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#E84D3D;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#C0392B;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="clawGradLight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F1948A;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E84D3D;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="armGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#E84D3D;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B03A2E;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="kubeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#326CE5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2857B6;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="115%" height="115%">
+      <feDropShadow dx="2" dy="4" stdDeviation="6" flood-color="#00000033"/>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="url(#kubeGrad)" filter="url(#shadow)"/>
+  <circle cx="256" cy="256" r="222" fill="none" stroke="#ffffff12" stroke-width="2.5"/>
+
+  <!-- Kubernetes-style heptagon outline (subtle) -->
+  <polygon points="256,56 366,102 414,208 396,326 298,404 214,404 116,326 98,208 146,102"
+           fill="none" stroke="#ffffff15" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Arm / base of claw -->
+  <path d="M 218,390 Q 225,340 234,295 Q 240,270 256,258 Q 272,270 278,295 Q 287,340 294,390 Q 260,405 218,390 Z"
+        fill="url(#armGrad)" stroke="#A93226" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Arm segments -->
+  <ellipse cx="256" cy="355" rx="32" ry="4" fill="#A9322640"/>
+  <ellipse cx="256" cy="328" rx="26" ry="3.5" fill="#A9322640"/>
+  <ellipse cx="256" cy="302" rx="20" ry="3" fill="#A9322640"/>
+
+  <!-- Left pincer - fat lobster claw shape -->
+  <path d="M 250,260
+           Q 228,240 195,200
+           Q 162,160 140,125
+           Q 125,100 120,82
+           Q 115,60 135,52
+           Q 158,44 178,62
+           Q 198,82 210,110
+           Q 222,140 230,168
+           Q 238,195 244,225
+           Q 247,242 250,260 Z"
+        fill="url(#clawGrad)" stroke="#A93226" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Left pincer bulge (lobster claws are fat at the middle) -->
+  <path d="M 230,220 Q 200,185 175,148 Q 155,118 148,98
+           Q 142,78 155,72 Q 170,66 182,82
+           Q 198,105 212,140 Q 224,170 232,205 Z"
+        fill="url(#clawGradLight)" opacity="0.4"/>
+  <!-- Left pincer tip bumps -->
+  <circle cx="127" cy="72" r="7" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
+  <circle cx="138" cy="57" r="6" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
+  <circle cx="152" cy="49" r="5.5" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
+
+  <!-- Right pincer - fat lobster claw shape (mirrored) -->
+  <path d="M 262,260
+           Q 284,240 317,200
+           Q 350,160 372,125
+           Q 387,100 392,82
+           Q 397,60 377,52
+           Q 354,44 334,62
+           Q 314,82 302,110
+           Q 290,140 282,168
+           Q 274,195 268,225
+           Q 265,242 262,260 Z"
+        fill="url(#clawGrad)" stroke="#A93226" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Right pincer bulge -->
+  <path d="M 282,220 Q 312,185 337,148 Q 357,118 364,98
+           Q 370,78 357,72 Q 342,66 330,82
+           Q 314,105 300,140 Q 288,170 280,205 Z"
+        fill="url(#clawGradLight)" opacity="0.4"/>
+  <!-- Right pincer tip bumps -->
+  <circle cx="385" cy="72" r="7" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
+  <circle cx="374" cy="57" r="6" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
+  <circle cx="360" cy="49" r="5.5" fill="#D44637" stroke="#A93226" stroke-width="1.5"/>
+
+  <!-- Joint at top of arm -->
+  <ellipse cx="256" cy="260" rx="20" ry="15" fill="#D35400" stroke="#A93226" stroke-width="2"/>
+  <ellipse cx="256" cy="258" rx="13" ry="9" fill="#E67E22" opacity="0.45"/>
+
+  <!-- Kubernetes wheel at joint -->
+  <g transform="translate(256,260)" opacity="0.95">
+    <circle cx="0" cy="0" r="8" fill="#ffffff" opacity="0.9"/>
+    <!-- 7 spokes like K8s logo -->
+    <line x1="0" y1="-8" x2="0" y2="-12.5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    <line x1="7.2" y1="-3.2" x2="11.2" y2="-5" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    <line x1="6" y1="5.6" x2="9.4" y2="8.8" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    <line x1="-1.8" y1="7.8" x2="-2.8" y2="12.2" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    <line x1="-7.4" y1="2.8" x2="-11.6" y2="4.4" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    <line x1="-5.4" y1="-5.8" x2="-8.4" y2="-9.1" stroke="#ffffff" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    <circle cx="0" cy="0" r="4" fill="url(#kubeGrad)"/>
+  </g>
+
+  <!-- Cartoon eyes on outer curve of pincers -->
+  <!-- Left eye - on the fat part of the left pincer -->
+  <g transform="translate(180,135)">
+    <ellipse cx="0" cy="0" rx="16" ry="18" fill="white" stroke="#A93226" stroke-width="2"/>
+    <ellipse cx="4" cy="2" rx="8" ry="10" fill="#2C3E50"/>
+    <circle cx="6" cy="-1" r="4" fill="white"/>
+    <!-- Tiny eyebrow -->
+    <path d="M -10,-14 Q 0,-20 10,-14" fill="none" stroke="#8B1A1A" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <!-- Right eye - on the fat part of the right pincer -->
+  <g transform="translate(332,135)">
+    <ellipse cx="0" cy="0" rx="16" ry="18" fill="white" stroke="#A93226" stroke-width="2"/>
+    <ellipse cx="-4" cy="2" rx="8" ry="10" fill="#2C3E50"/>
+    <circle cx="-6" cy="-1" r="4" fill="white"/>
+    <!-- Tiny eyebrow -->
+    <path d="M -10,-14 Q 0,-20 10,-14" fill="none" stroke="#8B1A1A" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Sparkle between open pincers -->
+  <g transform="translate(256,135)" opacity="0.85">
+    <line x1="0" y1="-14" x2="0" y2="14" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-14" y1="0" x2="14" y2="0" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-9" y1="-9" x2="9" y2="9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+    <line x1="9" y1="-9" x2="-9" y2="9" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+
+  <!-- Text banner at bottom -->
+  <text x="256" y="450" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="44" font-weight="700" fill="white" letter-spacing="4">
+    KUBECLAW
+  </text>
+  <text x="256" y="475" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+        font-size="13" font-weight="400" fill="#ffffffaa" letter-spacing="6">
+    OPENCLAW DEVPODS
+  </text>
+</svg>

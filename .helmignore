@@ -7,5 +7,6 @@
 .DS_Store
 examples/
 README.md
+logo.svg
 .claude/
 docs/

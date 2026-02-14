@@ -1,9 +1,15 @@
-# KubeClaw
+<p align="center">
+  <img src="logo.svg" alt="KubeClaw Logo" width="200">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Helm](https://img.shields.io/badge/Helm-v3-blue)](https://helm.sh)
+<h1 align="center">KubeClaw</h1>
 
-A Helm chart for deploying [OpenClaw](https://github.com/ZacxDev/openclaw-image) AI agent devpods on Kubernetes.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+  <a href="https://helm.sh"><img src="https://img.shields.io/badge/Helm-v3-blue" alt="Helm"></a>
+</p>
+
+<p align="center">A Helm chart for deploying <a href="https://github.com/ZacxDev/openclaw-image">OpenClaw</a> AI agent devpods on Kubernetes.</p>
 
 Reduces deploying a new agent from ~8 files across 3 directories to **2 files**: a HelmRelease values file + a SOPS-encrypted secret.
 
