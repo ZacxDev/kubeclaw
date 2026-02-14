@@ -16,3 +16,7 @@ Service endpoint:
 
 WARNING: This agent has cluster-admin privileges!
 {{- end }}
+{{- if and .Values.rbac.orchestrator.enabled (not .Values.rbac.clusterAdmin.enabled) }}
+
+NOTE: This agent has orchestrator privileges (cross-namespace access to pods, cronjobs, jobs, and HelmReleases).
+{{- end }}

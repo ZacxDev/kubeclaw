@@ -132,6 +132,12 @@ rbac:
   clusterAdmin:
     # -- Create a ClusterRoleBinding to cluster-admin for this agent
     enabled: false
+  orchestrator:
+    # -- Create a scoped ClusterRole for cross-namespace agent orchestration.
+    # Grants read access to namespaces, pods, pods/log, cronjobs, jobs, and
+    # HelmReleases, plus pods/exec create and job create.
+    # Skipped when clusterAdmin is enabled (superset).
+    enabled: false
 
 # -- Infrastructure tools installation (kubectl, flux, sops, age)
 infraTools:

@@ -1,0 +1,204 @@
+suite: orchestrator rbac
+templates:
+  - templates/clusterrole-orchestrator.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should not create orchestrator resources by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create ClusterRole and ClusterRoleBinding when enabled
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should create ClusterRole with correct name
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: testbot-orchestrator
+
+  - it: should create ClusterRoleBinding with correct name
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: metadata.name
+          value: testbot-orchestrator
+
+  - it: should skip when clusterAdmin is enabled (mutual exclusion)
+    set:
+      rbac:
+        create: true
+        clusterAdmin:
+          enabled: true
+        orchestrator:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should skip when rbac.create is false
+    set:
+      rbac:
+        create: false
+        orchestrator:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should have namespaces rule
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["namespaces"]
+            verbs: ["get", "list", "watch"]
+
+  - it: should have pods rule
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["get", "list", "watch"]
+
+  - it: should have pods/log rule
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods/log"]
+            verbs: ["get"]
+
+  - it: should have pods/exec rule
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods/exec"]
+            verbs: ["create"]
+
+  - it: should have cronjobs rule
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["batch"]
+            resources: ["cronjobs"]
+            verbs: ["get", "list", "watch"]
+
+  - it: should have jobs rule
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["batch"]
+            resources: ["jobs"]
+            verbs: ["get", "list", "watch", "create"]
+
+  - it: should have helmreleases rule
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["helm.toolkit.fluxcd.io"]
+            resources: ["helmreleases"]
+            verbs: ["get", "list", "watch"]
+
+  - it: should bind to correct ServiceAccount and namespace
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: testbot-devpod
+      - equal:
+          path: subjects[0].namespace
+          value: devpod-testbot
+
+  - it: should have labels on both resources
+    set:
+      rbac:
+        create: true
+        orchestrator:
+          enabled: true
+    documentIndex: 0
+    asserts:
+      - exists:
+          path: metadata.labels
+      - isNotEmpty:
+          path: metadata.labels

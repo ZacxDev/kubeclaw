@@ -39,4 +39,11 @@ extraConfigMaps:
           ]
         }
 
+rbac:
+  orchestrator:
+    enabled: true
+
+infraTools:
+  enabled: true
+
 existingSecret: devpod-secrets

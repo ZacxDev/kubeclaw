@@ -75,6 +75,8 @@ rbac:
   create: true
   clusterAdmin:
     enabled: true
+  orchestrator:
+    enabled: false
 
 infraTools:
   enabled: true
