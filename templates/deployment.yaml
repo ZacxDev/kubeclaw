@@ -1,0 +1,282 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-devpod
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "kubeclaw.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kubeclaw.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.skills }}
+        checksum/skills: {{ include (print $.Template.BasePath "/configmap-skills.yaml") . | sha256sum }}
+        {{- end }}
+    spec:
+      {{- if .Values.rbac.create }}
+      serviceAccountName: {{ include "kubeclaw.fullname" . }}-devpod
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+
+              # --- SSH setup ---
+              mkdir -p /root/.ssh
+              if [ -f /etc/git-secret/ssh ]; then
+                cp /etc/git-secret/ssh /root/.ssh/id_rsa
+                chmod 600 /root/.ssh/id_rsa
+                echo "Host github.com
+                HostName github.com
+                User git
+                IdentityFile /root/.ssh/id_rsa
+                StrictHostKeyChecking no" > /root/.ssh/config
+                chmod 600 /root/.ssh/config
+              fi
+
+              # --- Repo clone/pull ---
+              mkdir -p /data/workspace
+              if [ -f /config/repos.json ]; then
+                for repo in $(jq -r '.[] | @base64' /config/repos.json); do
+                  _jq() { echo "$repo" | base64 -d | jq -r "$1"; }
+                  REPO_URL=$(_jq '.url')
+                  REPO_PATH=$(_jq '.path')
+                  REPO_BRANCH=$(_jq '.branch // "main"')
+
+                  if [ -d "$REPO_PATH/.git" ]; then
+                    echo "Pulling $REPO_PATH..."
+                    cd "$REPO_PATH" && git pull origin "$REPO_BRANCH" || true
+                  else
+                    echo "Cloning $REPO_URL to $REPO_PATH..."
+                    rm -rf "$REPO_PATH"
+                    git clone -b "$REPO_BRANCH" "$REPO_URL" "$REPO_PATH"
+                  fi
+
+                  cd "$REPO_PATH"
+                  git config user.email "${GIT_EMAIL}"
+                  git config user.name "${GIT_NAME}"
+                done
+              fi
+
+              # --- Skills ---
+              mkdir -p /root/.clawdbot/skills /root/.clawdbot/cron
+              if [ -d /config/skills ]; then
+                cp /config/skills/*.md /root/.clawdbot/skills/ 2>/dev/null || true
+              fi
+
+              # --- OAuth credentials ---
+              mkdir -p /data/.claude
+              if [ ! -f /data/.claude/.credentials.json ] && [ -f /secrets/claude-credentials.json ]; then
+                cp /secrets/claude-credentials.json /data/.claude/.credentials.json
+                chmod 600 /data/.claude/.credentials.json
+              fi
+              ln -sf /data/.claude /root/.claude
+
+              {{- if .Values.infraTools.enabled }}
+              # --- Infrastructure tools ---
+              echo "Installing kubectl..."
+              curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" -o /usr/local/bin/kubectl
+              chmod +x /usr/local/bin/kubectl
+
+              echo "Installing flux..."
+              curl -fsSL https://fluxcd.io/install.sh | bash
+
+              echo "Installing sops..."
+              curl -fsSL "https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.$(dpkg --print-architecture)" -o /usr/local/bin/sops
+              chmod +x /usr/local/bin/sops
+
+              echo "Installing age..."
+              ARCH=$(dpkg --print-architecture)
+              curl -fsSL "https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-${ARCH}.tar.gz" | tar xz -C /tmp
+              mv /tmp/age/age /usr/local/bin/
+              mv /tmp/age/age-keygen /usr/local/bin/
+              rm -rf /tmp/age
+
+              # Setup in-cluster kubeconfig
+              mkdir -p /root/.kube
+              if [ -f /var/run/secrets/kubernetes.io/serviceaccount/token ]; then
+                echo "Setting up in-cluster kubeconfig..."
+                kubectl config set-cluster in-cluster --server=https://kubernetes.default.svc --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+                kubectl config set-credentials devpod --token=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+                kubectl config set-context in-cluster --cluster=in-cluster --user=devpod --namespace={{ include "kubeclaw.namespace" . }}
+                kubectl config use-context in-cluster
+              fi
+
+              # Copy remote kubeconfigs
+              if [ -d /etc/kubeconfigs ]; then
+                for kc in /etc/kubeconfigs/*; do
+                  [ -f "$kc" ] || continue
+                  cp "$kc" "/root/.kube/$(basename $kc)"
+                  chmod 600 "/root/.kube/$(basename $kc)"
+                done
+              fi
+
+              echo "Verifying infrastructure tools..."
+              kubectl version --client 2>/dev/null || true
+              flux --version 2>/dev/null || true
+              sops --version 2>/dev/null || true
+              {{- end }}
+
+              # --- Generate clawdbot.json with secrets injected ---
+              cat /config/clawdbot.json | jq \
+                --arg matrix_token "$MATRIX_ACCESS_TOKEN" \
+                --arg telegram_token "$TELEGRAM_BOT_TOKEN" \
+                --arg hooks_token "$HOOKS_TOKEN" \
+                '.channels.matrix.accessToken = $matrix_token |
+                 .channels.telegram.botToken = $telegram_token |
+                 .hooks.token = $hooks_token |
+                 .gateway.auth.token = $hooks_token' \
+                > /root/.clawdbot/clawdbot.json
+              chmod 600 /root/.clawdbot/clawdbot.json
+
+              # --- Initialize channels ---
+              echo "[$(date -Iseconds)] Running clawdbot doctor --fix..."
+              clawdbot doctor --fix || echo "Doctor exited with $?, continuing..."
+
+              # --- Gateway restart loop ---
+              while true; do
+                echo "[$(date -Iseconds)] Starting clawdbot gateway..."
+                clawdbot gateway --bind lan || echo "[$(date -Iseconds)] Exited with $?, restarting..."
+                sleep 5
+              done
+          ports:
+            - name: gateway
+              containerPort: 18789
+              protocol: TCP
+          env:
+            - name: NODE_OPTIONS
+              value: "--unhandled-rejections=none"
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+            - name: GIT_EMAIL
+              value: {{ .Values.git.email | quote }}
+            - name: GIT_NAME
+              value: {{ .Values.git.name | quote }}
+            {{- if .Values.gateway.callbackUrl }}
+            - name: GATEWAY_URL
+              value: {{ .Values.gateway.callbackUrl | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "kubeclaw.secretName" . }}
+                optional: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+            - name: git-ssh
+              mountPath: /etc/git-secret
+              readOnly: true
+            {{- if .Values.skills }}
+            - name: skills
+              mountPath: /config/skills
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.infraTools.enabled .Values.infraTools.kubeconfigs.existingSecret }}
+            - name: kubeconfigs
+              mountPath: /etc/kubeconfigs
+              readOnly: true
+            {{- end }}
+            {{- range .Values.extraConfigMaps }}
+            - name: extra-{{ .name }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /
+              port: 18789
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 18789
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "kubeclaw.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          configMap:
+            name: {{ include "kubeclaw.fullname" . }}-config
+        - name: secrets
+          secret:
+            secretName: {{ include "kubeclaw.secretName" . }}
+            optional: true
+        - name: git-ssh
+          secret:
+            secretName: {{ include "kubeclaw.secretName" . }}
+            defaultMode: 0400
+            items:
+              - key: git-ssh-key
+                path: ssh
+            optional: true
+        {{- if .Values.skills }}
+        - name: skills
+          configMap:
+            name: {{ include "kubeclaw.fullname" . }}-skills
+        {{- end }}
+        {{- if and .Values.infraTools.enabled .Values.infraTools.kubeconfigs.existingSecret }}
+        - name: kubeconfigs
+          secret:
+            secretName: {{ .Values.infraTools.kubeconfigs.existingSecret }}
+            defaultMode: 0400
+            optional: true
+        {{- end }}
+        {{- range .Values.extraConfigMaps }}
+        - name: extra-{{ .name }}
+          configMap:
+            name: {{ include "kubeclaw.fullname" $ }}-{{ .name }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

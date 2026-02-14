@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-config
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+data:
+  clawdbot.json: |
+    {{- if .Values.rawConfig }}
+    {{ .Values.rawConfig | toJson | indent 4 }}
+    {{- else }}
+    {
+      "agents": {
+        "defaults": {
+          "workspace": {{ include "kubeclaw.workspace" . | quote }},
+          "model": {
+            "primary": {{ .Values.agent.model.primary | quote }}
+          },
+          "maxConcurrent": {{ .Values.agent.maxConcurrent }}
+        },
+        "list": [
+          {
+            "id": {{ include "kubeclaw.agentId" . | quote }},
+            "name": {{ include "kubeclaw.displayName" . | quote }},
+            "default": true,
+            "workspace": {{ include "kubeclaw.workspace" . | quote }},
+            "groupChat": {
+              "mentionPatterns": {{ include "kubeclaw.mentionPatterns" . }}
+            }
+          }
+        ]
+      },
+      "channels": {
+        "matrix": {
+          "enabled": {{ .Values.channels.matrix.enabled }},
+          "homeserver": {{ .Values.channels.matrix.homeserver | quote }},
+          "dm": {
+            "policy": {{ .Values.channels.matrix.dm.policy | quote }},
+            "allowFrom": {{ .Values.channels.matrix.dm.allowFrom | toJson }}
+          },
+          "groupPolicy": {{ .Values.channels.matrix.groupPolicy | quote }},
+          "autoJoin": {{ .Values.channels.matrix.autoJoin | quote }}
+        },
+        "telegram": {
+          "enabled": {{ .Values.channels.telegram.enabled }}
+        }
+      },
+      "tools": {
+        "web": {
+          "search": {
+            "enabled": {{ .Values.tools.web.search.enabled }},
+            "provider": {{ .Values.tools.web.search.provider | quote }},
+            "maxResults": {{ .Values.tools.web.search.maxResults }}
+          }
+        }
+      },
+      "gateway": {
+        "mode": {{ .Values.gateway.mode | quote }}
+      },
+      "commands": {
+        "native": {{ .Values.commands.native | quote }},
+        "nativeSkills": {{ .Values.commands.nativeSkills | quote }}
+      },
+      "messages": {
+        "ackReactionScope": {{ .Values.messages.ackReactionScope | quote }},
+        "groupChat": {
+          "mentionPatterns": {{ include "kubeclaw.mentionPatterns" . }}
+        }
+      },
+      "hooks": {
+        "enabled": {{ .Values.hooks.enabled }},
+        "mappings": [
+          {{- if .Values.hooks.mappings }}
+          {{- range $i, $m := .Values.hooks.mappings }}
+          {{- if $i }},{{ end }}
+          {{ $m | toJson }}
+          {{- end }}
+          {{- else }}
+          {
+            "match": { "path": "element" },
+            "action": "agent",
+            "wakeMode": "now",
+            "name": {{ include "kubeclaw.displayName" . | quote }},
+            "sessionKey": "hook:element:{{`{{timestamp}}`}}",
+            "messageTemplate": {{ printf "FIRST: Read /root/.clawdbot/skills/%s.md for project context.\n\nElement reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}\n\n**Instruction:** {{instruction}}" (include "kubeclaw.agentId" .) | quote }},
+            "deliver": false
+          }
+          {{- end }}
+        ]
+      }
+    }
+    {{- end }}
+  repos.json: |
+    {{ .Values.git.repos | toJson }}

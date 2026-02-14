@@ -1,0 +1,38 @@
+# Infrastructure agent — homelab-infra with kubectl, flux, sops, cluster-admin
+agentName: homelab-infra
+agentDisplayName: "Homelab Infra Dev"
+
+git:
+  email: "zacxdev@gmail.com"
+  name: "Zach (Homelab Infra DevPod)"
+  repos:
+    - url: "git@github.com:ZacxDev/homelab-talos.git"
+      path: "/data/repos/homelab-talos"
+      branch: "trunk"
+
+agent:
+  model:
+    primary: "anthropic/claude-opus-4-5"
+  mentionPatterns:
+    - "@homelab-infra"
+    - "@infra"
+    - "hey infra"
+
+skills:
+  homelab-infra-dev.md: |
+    # Homelab Infra Dev Skill
+    You are the infrastructure development agent.
+    ## Workspace
+    - Repo: /data/repos/homelab-talos
+    - Clusters: homelab (Talos), workbench (NixOS k3s), production (k0s)
+
+rbac:
+  clusterAdmin:
+    enabled: true
+
+infraTools:
+  enabled: true
+  kubeconfigs:
+    existingSecret: kubeconfigs
+
+existingSecret: devpod-secrets

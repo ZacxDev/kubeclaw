@@ -1,0 +1,9 @@
+.git
+.gitignore
+.idea
+*.swp
+*.bak
+*.tmp
+.DS_Store
+examples/
+README.md

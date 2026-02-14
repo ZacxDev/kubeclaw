@@ -1,0 +1,192 @@
+# -- Agent name. Used for resource naming, namespace suffix, and config defaults.
+# @required
+agentName: ""
+
+# -- Human-readable display name for the agent in Matrix/config.
+# Defaults to "{agentName} Dev" if empty.
+agentDisplayName: ""
+
+image:
+  # -- Container image repository
+  repository: harbor.homelab.lan/library/clawdbot
+  # -- Container image tag
+  tag: latest
+  # -- Image pull policy
+  pullPolicy: Always
+
+# -- Image pull secrets
+imagePullSecrets: []
+
+# -- Git configuration for repo cloning
+git:
+  # -- Git user email for commits
+  email: "agent@devpod.local"
+  # -- Git user name for commits
+  name: "DevPod Agent"
+  # -- Repositories to clone at startup
+  # Each entry: { url, path, branch }
+  repos: []
+  # - url: "git@github.com:user/repo.git"
+  #   path: "/data/repos/repo"
+  #   branch: "main"
+
+# -- Agent configuration for clawdbot.json
+agent:
+  # -- Agent ID. Defaults to agentName if empty.
+  id: ""
+  # -- Workspace directory. Defaults to first repo path or /data/workspace.
+  workspace: ""
+  # -- Maximum concurrent sessions
+  maxConcurrent: 4
+  model:
+    # -- Primary Claude model
+    primary: "anthropic/claude-sonnet-4"
+  # -- Matrix mention trigger patterns.
+  # Defaults to ["@{agentName}", "{agentName}"] if empty.
+  mentionPatterns: []
+
+# -- Skill files to mount. Map of filename to content.
+skills: {}
+# promptver-dev.md: |
+#   # Promptver Dev Skill
+#   ...
+
+# -- Channel configuration
+channels:
+  matrix:
+    # -- Enable Matrix channel
+    enabled: true
+    # -- Matrix homeserver URL
+    homeserver: "https://matrix.zacx.dev"
+    # -- DM policy
+    dm:
+      policy: "open"
+      allowFrom:
+        - "*"
+    # -- Group chat policy
+    groupPolicy: "open"
+    # -- Auto-join behavior
+    autoJoin: "always"
+  telegram:
+    # -- Enable Telegram channel
+    enabled: false
+
+# -- Tools configuration
+tools:
+  web:
+    search:
+      # -- Enable web search
+      enabled: true
+      # -- Search provider
+      provider: "brave"
+      # -- Max search results
+      maxResults: 3
+
+# -- Gateway configuration
+gateway:
+  # -- Gateway mode
+  mode: "local"
+  # -- Callback URL for the main clawdbot gateway (for result posting).
+  # Set to the main clawdbot service URL if agents need to report back.
+  callbackUrl: ""
+
+# -- Commands configuration
+commands:
+  native: "auto"
+  nativeSkills: "auto"
+
+# -- Messages configuration
+messages:
+  ackReactionScope: "all"
+
+# -- Hooks configuration
+hooks:
+  # -- Enable hooks
+  enabled: true
+  # -- Hook mappings array. If empty, a default element hook is generated.
+  # Set to a non-empty array to fully override.
+  mappings: []
+  # - match: { path: "element" }
+  #   action: "agent"
+  #   wakeMode: "now"
+  #   name: "Agent Name"
+  #   sessionKey: "hook:element:{{timestamp}}"
+  #   messageTemplate: "..."
+  #   deliver: false
+
+# -- Name of an existing Secret containing agent tokens/keys.
+# Expected keys: MATRIX_ACCESS_TOKEN, TELEGRAM_BOT_TOKEN, HOOKS_TOKEN,
+#   GITHUB_TOKEN, BRAVE_API_KEY, ANTHROPIC_API_KEY, git-ssh-key,
+#   claude-credentials.json (all optional)
+existingSecret: ""
+
+# -- Namespace configuration
+namespace:
+  # -- Create the namespace
+  create: true
+
+# -- RBAC configuration
+rbac:
+  # -- Create RBAC resources (Role, RoleBinding, ServiceAccount)
+  create: true
+  clusterAdmin:
+    # -- Create a ClusterRoleBinding to cluster-admin for this agent
+    enabled: false
+
+# -- Infrastructure tools installation (kubectl, flux, sops, age)
+infraTools:
+  # -- Install infrastructure tools at startup
+  enabled: false
+  kubeconfigs:
+    # -- Name of existing Secret containing kubeconfig files
+    existingSecret: ""
+
+# -- Extra ConfigMaps to create and mount (e.g., agents registry for coordinator)
+# Each entry: { name, mountPath, data }
+extraConfigMaps: []
+# - name: agents-registry
+#   mountPath: /config/agents
+#   data:
+#     agents.json: |
+#       { "agents": [...] }
+
+# -- Extra volumes to add to the pod
+extraVolumes: []
+
+# -- Extra volume mounts to add to the container
+extraVolumeMounts: []
+
+# -- Extra environment variables
+extraEnv: []
+
+# -- Full clawdbot.json override. When set, bypasses all templated config generation.
+# The secret fields are still injected via jq at runtime.
+rawConfig: {}
+
+# -- Persistence configuration
+persistence:
+  # -- Enable persistence
+  enabled: true
+  # -- Use an existing PVC
+  existingClaim: ""
+  # -- Storage class (empty = cluster default)
+  storageClass: ""
+  # -- PVC size
+  size: 10Gi
+  # -- Access modes
+  accessModes:
+    - ReadWriteOnce
+
+# -- Container resource requests/limits
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "250m"
+  limits:
+    memory: "2Gi"
+    cpu: "2000m"
+
+# -- Pod-level settings
+nodeSelector: {}
+tolerations: []
+affinity: {}

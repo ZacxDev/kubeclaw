@@ -1,0 +1,18 @@
+KubeClaw agent "{{ include "kubeclaw.fullname" . }}" deployed!
+
+Namespace: {{ include "kubeclaw.namespace" . }}
+Agent ID:  {{ include "kubeclaw.agentId" . }}
+Display:   {{ include "kubeclaw.displayName" . }}
+
+Check status:
+  kubectl get pods -n {{ include "kubeclaw.namespace" . }}
+
+View logs:
+  kubectl logs -n {{ include "kubeclaw.namespace" . }} deployment/{{ include "kubeclaw.fullname" . }}-devpod -f
+
+Service endpoint:
+  {{ include "kubeclaw.fullname" . }}-devpod.{{ include "kubeclaw.namespace" . }}.svc.cluster.local:18789
+{{- if .Values.rbac.clusterAdmin.enabled }}
+
+WARNING: This agent has cluster-admin privileges!
+{{- end }}

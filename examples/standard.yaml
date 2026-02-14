@@ -1,0 +1,24 @@
+# Standard agent — minimal setup like promptver
+agentName: promptver
+
+git:
+  email: "zacxdev@gmail.com"
+  name: "Zach (Promptver DevPod)"
+  repos:
+    - url: "git@github.com:ZacxDev/promptver.git"
+      path: "/data/repos/promptver"
+      branch: "trunk"
+
+agent:
+  model:
+    primary: "anthropic/claude-sonnet-4"
+
+skills:
+  promptver-dev.md: |
+    # Promptver Dev Skill
+    You are the Promptver development agent.
+    ## Project
+    - Repo: /data/repos/promptver
+    - Stack: Go API, React frontend, PostgreSQL, Redis
+
+existingSecret: devpod-secrets
