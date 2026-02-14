@@ -1,5 +1,4 @@
 # Stock News Workflow
-# Migrated from: stock-news-cronjob.yaml
 #
 # Single-step daily workflow that runs on weekday mornings.
 # Agent summarizes market news for a watchlist and sends via Telegram.
@@ -7,10 +6,10 @@
 agentName: stockbot
 
 git:
-  email: "zacxdev@gmail.com"
+  email: "user@example.com"
   name: "StockBot (DevPod)"
   repos:
-    - url: "git@github.com:ZacxDev/stock-tracker.git"
+    - url: "git@github.com:yourorg/stock-tracker.git"
       path: "/data/repos/stock-tracker"
       branch: "main"
 
@@ -36,7 +35,7 @@ workflows:
     agent: stockbot
     notify:
       telegram:
-        chatId: "5111747585"
+        chatId: "YOUR_CHAT_ID"
     steps:
       - name: market-summary
         timeout: 300

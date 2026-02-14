@@ -86,7 +86,7 @@ curl -s -X POST "https://api.telegram.org/bot..." ...
 # After: Declarative
 notify:
   telegram:
-    chatId: "5111747585"
+    chatId: "YOUR_CHAT_ID"
 steps:
   - name: my-step
     notify: true  # sends step output to Telegram
@@ -133,7 +133,7 @@ spec:
               image: bitnami/kubectl:latest
               env:
                 - name: CHAT_ID
-                  value: "5111747585"
+                  value: "YOUR_CHAT_ID"
                 - name: TELEGRAM_BOT_TOKEN
                   valueFrom:
                     secretKeyRef: ...
@@ -158,15 +158,15 @@ workflows:
     timeout: 2700
     agent: promptver-dev
     context:
-      PROMETHEUS_URL: "http://192.168.50.94:30909"
-      LOKI_URL: "http://192.168.50.94:30310"
+      PROMETHEUS_URL: "http://prometheus.example.com:9090"
+      LOKI_URL: "http://loki.example.com:3100"
     report:
       path: "claudedocs/reports/product-ideas-{{date}}.md"
       commit: true
       branch: "trunk"
     notify:
       telegram:
-        chatId: "5111747585"
+        chatId: "YOUR_CHAT_ID"
     steps:
       - name: gather
         timeout: 900
@@ -199,7 +199,7 @@ workflows:
     agent: stockbot
     notify:
       telegram:
-        chatId: "5111747585"
+        chatId: "YOUR_CHAT_ID"
     steps:
       - name: market-summary
         timeout: 300

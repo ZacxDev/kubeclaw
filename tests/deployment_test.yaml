@@ -28,7 +28,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: harbor.homelab.lan/library/clawdbot:latest
+          pattern: your-registry/clawdbot:latest
         template: templates/deployment.yaml
 
   - it: should use custom image when set

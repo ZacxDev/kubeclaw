@@ -1,21 +1,36 @@
 # KubeClaw
 
-A Helm chart for deploying Clawdbot AI agent devpods on Kubernetes.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Helm](https://img.shields.io/badge/Helm-v3-blue)](https://helm.sh)
+
+A Helm chart for deploying [Clawdbot](https://github.com/ZacxDev/clawdbot) AI agent devpods on Kubernetes.
 
 Reduces deploying a new agent from ~8 files across 3 directories to **2 files**: a HelmRelease values file + a SOPS-encrypted secret.
+
+## What is this?
+
+KubeClaw deploys **Clawdbot agent pods** — long-running AI agents that connect to Matrix/Telegram, clone git repos, execute skills, and run scheduled workflows. Each agent gets its own namespace, persistent storage, RBAC, and service.
+
+**Key features:**
+- One-file agent deployment (all config in HelmRelease values)
+- Three agent variants: standard, coordinator, infrastructure
+- Workflow orchestration — multi-step scheduled pipelines via CronJobs
+- Built-in Telegram notifications, git report commits, and inter-step data passing
+- FluxCD-native with SOPS secret encryption
 
 ## Prerequisites
 
 - Kubernetes 1.27+
 - Helm 3.x
-- A running Clawdbot container image (e.g., `harbor.homelab.lan/library/clawdbot:latest`)
+- A Clawdbot container image (see [clawdbot](https://github.com/ZacxDev/clawdbot) for building your own)
 - SOPS + Age for secret encryption (optional, for FluxCD)
 - `helm-unittest` plugin for running tests (optional, for development)
 
 ## Quick Start
 
 ```bash
-helm install promptver . -f examples/standard.yaml
+# Set your image in values or override at install time
+helm install myagent . -f examples/standard.yaml --set image.repository=your-registry/clawdbot
 ```
 
 ## Usage with FluxCD
@@ -122,7 +137,7 @@ Secret tokens (`MATRIX_ACCESS_TOKEN`, etc.) are injected at runtime via environm
 | Value | Default | Description |
 |-------|---------|-------------|
 | `channels.matrix.enabled` | `true` | Enable Matrix |
-| `channels.matrix.homeserver` | `https://matrix.zacx.dev` | Matrix server |
+| `channels.matrix.homeserver` | `https://matrix.example.com` | Matrix server |
 | `channels.telegram.enabled` | `false` | Enable Telegram |
 
 ### Gateway
@@ -193,7 +208,7 @@ Expected secret keys: `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN`
 | Value | Default | Description |
 |-------|---------|-------------|
 | `rawConfig` | `{}` | Full clawdbot.json override (bypasses templating) |
-| `image.repository` | `harbor.homelab.lan/library/clawdbot` | Container image |
+| `image.repository` | `your-registry/clawdbot` | Container image |
 | `image.tag` | `latest` | Image tag |
 
 ## Workflows
@@ -386,3 +401,7 @@ Ensure the `existingSecret` exists in the target namespace:
 ```bash
 kubectl get secret -n devpod-{agent} devpod-secrets
 ```
+
+## License
+
+[MIT](LICENSE)

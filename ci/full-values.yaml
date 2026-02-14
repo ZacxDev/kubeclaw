@@ -2,7 +2,7 @@ agentName: fullbot
 agentDisplayName: "Full Test Bot"
 
 image:
-  repository: harbor.homelab.lan/library/clawdbot
+  repository: your-registry/clawdbot
   tag: v1.2.3
   pullPolicy: IfNotPresent
 

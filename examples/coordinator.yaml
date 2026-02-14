@@ -1,23 +1,23 @@
-# Coordinator agent — jarvis-style with extra configmaps
-agentName: jarvis
-agentDisplayName: "Jarvis"
+# Coordinator agent — routes tasks to specialist agents
+agentName: coordinator
+agentDisplayName: "Coordinator"
 
 git:
-  email: "zacxdev@gmail.com"
-  name: "Jarvis (DevPod Coordinator)"
+  email: "user@example.com"
+  name: "Coordinator (DevPod)"
 
 agent:
   model:
     primary: "anthropic/claude-opus-4-5"
   mentionPatterns:
-    - "@jarvis"
-    - "jarvis"
-    - "hey jarvis"
+    - "@coordinator"
+    - "coordinator"
+    - "hey coordinator"
 
 skills:
-  jarvis.md: |
-    # Jarvis Coordinator Skill
-    You are Jarvis, the meta-coordinator for all devpod agents.
+  coordinator.md: |
+    # Coordinator Skill
+    You are a meta-coordinator for all devpod agents.
     ## Capabilities
     - Agent discovery and routing
     - Status monitoring
@@ -31,10 +31,10 @@ extraConfigMaps:
         {
           "agents": [
             {
-              "id": "promptver",
-              "name": "Promptver Dev",
-              "namespace": "devpod-promptver",
-              "mentionPattern": "@promptver"
+              "id": "myagent",
+              "name": "My Agent",
+              "namespace": "devpod-myagent",
+              "mentionPattern": "@myagent"
             }
           ]
         }

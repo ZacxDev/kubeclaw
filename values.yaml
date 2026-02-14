@@ -8,7 +8,7 @@ agentDisplayName: ""
 
 image:
   # -- Container image repository
-  repository: harbor.homelab.lan/library/clawdbot
+  repository: your-registry/clawdbot
   # -- Container image tag
   tag: latest
   # -- Image pull policy
@@ -57,7 +57,7 @@ channels:
     # -- Enable Matrix channel
     enabled: true
     # -- Matrix homeserver URL
-    homeserver: "https://matrix.zacx.dev"
+    homeserver: "https://matrix.example.com"
     # -- DM policy
     dm:
       policy: "open"

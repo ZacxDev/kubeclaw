@@ -261,7 +261,7 @@ helm template myagent . -f examples/standard.yaml
 | `agent.workspace` | string | first repo path | Working directory |
 | `agent.maxConcurrent` | int | `4` | Max concurrent sessions |
 | `agent.model.primary` | string | `anthropic/claude-sonnet-4` | AI model |
-| `image.repository` | string | `harbor.homelab.lan/library/clawdbot` | Container image |
+| `image.repository` | string | `your-registry/clawdbot` | Container image |
 | `image.tag` | string | `latest` | Image tag |
 | `git.repos` | list | `[]` | Git repos to clone `[{url, path, branch}]` |
 | `skills` | map | `{}` | Skill files `{filename.md: content}` |

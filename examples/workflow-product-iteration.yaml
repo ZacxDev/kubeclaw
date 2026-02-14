@@ -1,31 +1,30 @@
 # Product Iteration Workflow
-# Migrated from: generate-ideas-cronjob.yaml + implement-ideas-cronjob.yaml
 #
 # 3-step pipeline that runs every 3 days:
 #   1. Gather metrics from Prometheus/Loki and user feedback
 #   2. Synthesize findings into prioritized product ideas
 #   3. Generate a report and send summary via Telegram
 
-agentName: promptver
+agentName: myagent
 
 git:
-  email: "zacxdev@gmail.com"
-  name: "Zach (Promptver DevPod)"
+  email: "user@example.com"
+  name: "My Agent (DevPod)"
   repos:
-    - url: "git@github.com:ZacxDev/promptver.git"
-      path: "/data/repos/promptver"
-      branch: "trunk"
+    - url: "git@github.com:yourorg/myproject.git"
+      path: "/data/repos/myproject"
+      branch: "main"
 
 agent:
   model:
     primary: "anthropic/claude-sonnet-4"
 
 skills:
-  promptver-dev.md: |
-    # Promptver Dev Skill
-    You are the Promptver development agent.
+  myagent.md: |
+    # My Agent Skill
+    You are a development agent for myproject.
     ## Project
-    - Repo: /data/repos/promptver
+    - Repo: /data/repos/myproject
     - Stack: Go API, React frontend, PostgreSQL, Redis
 
 existingSecret: devpod-secrets
@@ -34,17 +33,17 @@ workflows:
   product-iteration:
     schedule: "0 10 */3 * *"
     timeout: 2700
-    agent: promptver-dev
+    agent: myagent
     context:
-      PROMETHEUS_URL: "http://192.168.50.94:30909"
-      LOKI_URL: "http://192.168.50.94:30310"
+      PROMETHEUS_URL: "http://prometheus.example.com:9090"
+      LOKI_URL: "http://loki.example.com:3100"
     report:
-      path: "claudedocs/reports/product-ideas-{{date}}.md"
+      path: "docs/reports/product-ideas-{{date}}.md"
       commit: true
-      branch: "trunk"
+      branch: "main"
     notify:
       telegram:
-        chatId: "5111747585"
+        chatId: "YOUR_CHAT_ID"
     steps:
       - name: gather
         timeout: 900
