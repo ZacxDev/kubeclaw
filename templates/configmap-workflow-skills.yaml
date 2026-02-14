@@ -1,0 +1,26 @@
+{{- range $wfName, $wf := .Values.workflows }}
+{{- $hasInlineSkills := false }}
+{{- range $wf.steps }}
+{{- if .skill }}
+{{- $hasInlineSkills = true }}
+{{- end }}
+{{- end }}
+{{- if $hasInlineSkills }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeclaw.fullname" $ }}-wf-{{ $wfName }}
+  namespace: {{ include "kubeclaw.namespace" $ }}
+  labels:
+    {{- include "kubeclaw.workflowLabels" $ | nindent 4 }}
+    kubeclaw.dev/workflow: {{ $wfName }}
+data:
+  {{- range $wf.steps }}
+  {{- if .skill }}
+  {{ .name }}.md: |
+    {{- .skill | nindent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

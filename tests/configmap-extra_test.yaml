@@ -1,0 +1,44 @@
+suite: configmap-extra
+templates:
+  - templates/configmap-extra.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should not create ConfigMap when no extras
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create ConfigMap for each extra entry
+    set:
+      extraConfigMaps:
+        - name: agents-registry
+          mountPath: /config/agents
+          data:
+            agents.json: |
+              {"agents": []}
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: testbot-agents-registry
+
+  - it: should include data keys
+    set:
+      extraConfigMaps:
+        - name: my-config
+          mountPath: /config/custom
+          data:
+            config.yaml: |
+              key: value
+            settings.json: |
+              {"setting": true}
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "key: value"
+      - matchRegex:
+          path: data["settings.json"]
+          pattern: "setting"

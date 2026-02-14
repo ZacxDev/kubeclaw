@@ -1,0 +1,124 @@
+suite: workflow-rbac
+templates:
+  - templates/serviceaccount-workflow.yaml
+  - templates/role-workflow.yaml
+  - templates/rolebinding-workflow.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should not create workflow SA when no workflows
+    template: templates/serviceaccount-workflow.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create workflow SA when workflows defined
+    template: templates/serviceaccount-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: testbot-workflow
+      - equal:
+          path: metadata.namespace
+          value: devpod-testbot
+
+  - it: should not create workflow Role when no workflows
+    template: templates/role-workflow.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create workflow Role with exec permissions
+    template: templates/role-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.name
+          value: testbot-workflow-exec
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods/exec"]
+            verbs: ["create"]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["get", "list"]
+
+  - it: should not create workflow RoleBinding when no workflows
+    template: templates/rolebinding-workflow.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create workflow RoleBinding
+    template: templates/rolebinding-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: roleRef.name
+          value: testbot-workflow-exec
+      - equal:
+          path: subjects[0].name
+          value: testbot-workflow
+
+  - it: should create single SA regardless of workflow count
+    template: templates/serviceaccount-workflow.yaml
+    set:
+      workflows:
+        wf1:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+        wf2:
+          schedule: "0 12 * * *"
+          steps:
+            - name: step1
+              skill: "Do something else"
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should have workflow component label
+    template: templates/serviceaccount-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: workflow

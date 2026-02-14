@@ -1,0 +1,109 @@
+# Product Iteration Workflow
+# Migrated from: generate-ideas-cronjob.yaml + implement-ideas-cronjob.yaml
+#
+# 3-step pipeline that runs every 3 days:
+#   1. Gather metrics from Prometheus/Loki and user feedback
+#   2. Synthesize findings into prioritized product ideas
+#   3. Generate a report and send summary via Telegram
+
+agentName: promptver
+
+git:
+  email: "zacxdev@gmail.com"
+  name: "Zach (Promptver DevPod)"
+  repos:
+    - url: "git@github.com:ZacxDev/promptver.git"
+      path: "/data/repos/promptver"
+      branch: "trunk"
+
+agent:
+  model:
+    primary: "anthropic/claude-sonnet-4"
+
+skills:
+  promptver-dev.md: |
+    # Promptver Dev Skill
+    You are the Promptver development agent.
+    ## Project
+    - Repo: /data/repos/promptver
+    - Stack: Go API, React frontend, PostgreSQL, Redis
+
+existingSecret: devpod-secrets
+
+workflows:
+  product-iteration:
+    schedule: "0 10 */3 * *"
+    timeout: 2700
+    agent: promptver-dev
+    context:
+      PROMETHEUS_URL: "http://192.168.50.94:30909"
+      LOKI_URL: "http://192.168.50.94:30310"
+    report:
+      path: "claudedocs/reports/product-ideas-{{date}}.md"
+      commit: true
+      branch: "trunk"
+    notify:
+      telegram:
+        chatId: "5111747585"
+    steps:
+      - name: gather
+        timeout: 900
+        skill: |
+          # Gather Product Intelligence
+
+          Collect data from the following sources:
+
+          1. **Prometheus metrics** at $PROMETHEUS_URL:
+             - API error rates and latency trends
+             - Resource utilization patterns
+             - User activity metrics
+
+          2. **Loki logs** at $LOKI_URL:
+             - Error patterns and frequency
+             - User workflow bottlenecks
+             - Feature usage signals
+
+          3. **Codebase analysis**:
+             - Recent git commits and their impact areas
+             - Open TODOs and technical debt markers
+             - Test coverage gaps
+
+          Write raw findings to ${OUTPUT_DIR}/gather.txt.
+          Focus on actionable data points, not raw dumps.
+
+      - name: synthesize
+        timeout: 900
+        skill: |
+          # Synthesize Product Ideas
+
+          Read the gathered data from ${OUTPUT_DIR}/gather.txt.
+
+          Produce TWO outputs:
+
+          1. **Full report** at ${REPORT_PATH} with:
+             - Executive summary
+             - Top 5 prioritized recommendations
+             - Supporting metrics for each recommendation
+             - Implementation complexity estimates
+
+          2. **Telegram summary** (print to stdout, <3500 chars):
+             - Executive summary (2-3 sentences)
+             - Top 5 prioritized recommendations (one line each)
+             - Key metrics snapshot
+        notify: true
+
+      - name: implement-plan
+        timeout: 900
+        skill: |
+          # Generate Implementation Plan
+
+          Read the report at ${REPORT_PATH}.
+
+          For each of the top 3 recommendations:
+          1. Identify the specific files to change
+          2. Estimate lines of code
+          3. List any dependency changes needed
+          4. Write a brief implementation plan
+
+          Save the plan to ${OUTPUT_DIR}/implementation-plan.txt.
+          This will be used in future workflow runs to guide development.

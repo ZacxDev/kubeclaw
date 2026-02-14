@@ -1,0 +1,48 @@
+suite: configmap-skills
+templates:
+  - templates/configmap-skills.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should not create ConfigMap when no skills
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create ConfigMap with single skill
+    set:
+      skills:
+        testbot.md: |
+          # Test Bot Skill
+          You are the test bot.
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: testbot-skills
+
+  - it: should contain skill file data
+    set:
+      skills:
+        testbot.md: |
+          # Test Bot Skill
+          You are the test bot.
+    asserts:
+      - matchRegex:
+          path: data["testbot.md"]
+          pattern: "Test Bot Skill"
+
+  - it: should contain multiple skill files
+    set:
+      skills:
+        skill1.md: "Skill one content"
+        skill2.md: "Skill two content"
+    asserts:
+      - matchRegex:
+          path: data["skill1.md"]
+          pattern: "Skill one content"
+      - matchRegex:
+          path: data["skill2.md"]
+          pattern: "Skill two content"

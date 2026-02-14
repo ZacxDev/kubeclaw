@@ -1,0 +1,22 @@
+{{- if include "kubeclaw.hasWorkflows" . }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-workflow-exec
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.workflowLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get"]
+{{- end }}

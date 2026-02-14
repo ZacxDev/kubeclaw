@@ -1,0 +1,280 @@
+suite: workflow-cronjob
+templates:
+  - templates/cronjob-workflow.yaml
+  - templates/configmap-workflow-skills.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should not create CronJob when no workflows
+    template: templates/cronjob-workflow.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create CronJob with correct naming
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        daily-report:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - isKind:
+          of: CronJob
+      - equal:
+          path: metadata.name
+          value: testbot-wf-daily-report
+
+  - it: should set correct namespace
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: devpod-testbot
+
+  - it: should set schedule
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "30 8 */3 * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "30 8 */3 * *"
+
+  - it: should set concurrencyPolicy
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          concurrencyPolicy: Replace
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Replace
+
+  - it: should default concurrencyPolicy to Forbid
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+
+  - it: should set suspend
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          suspend: true
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.suspend
+          value: true
+
+  - it: should set timeout as activeDeadlineSeconds
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          timeout: 3600
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 3600
+
+  - it: should use default timeout
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.activeDeadlineSeconds
+          value: 900
+
+  - it: should reference workflow ServiceAccount
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.serviceAccountName
+          value: testbot-workflow
+
+  - it: should use configured workflow image
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflowImage:
+        repository: custom/kubectl
+        tag: v1.30.0
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: "custom/kubectl:v1.30.0"
+
+  - it: should set Telegram env when notify configured
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          notify:
+            telegram:
+              chatId: "12345"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: CHAT_ID
+            value: "12345"
+
+  - it: should mount skills volume when inline skills present
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+          content:
+            name: workflow-skills
+            mountPath: /skills
+            readOnly: true
+
+  - it: should not mount skills volume when using skillRef only
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skillRef: "/root/.clawdbot/skills/test.md"
+    asserts:
+      - isNull:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+
+  - it: should set context env vars
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          context:
+            PROJECT: "myproject"
+            VERSION: "1.0"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: PROJECT
+            value: "myproject"
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: VERSION
+            value: "1.0"
+
+  - it: should have workflow label
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: metadata.labels["kubeclaw.dev/workflow"]
+          value: test-wf
+
+  - it: should create multiple CronJobs for multiple workflows
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        wf1:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "WF1 task"
+        wf2:
+          schedule: "0 12 * * *"
+          steps:
+            - name: step1
+              skill: "WF2 task"
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should set restartPolicy to Never
+    template: templates/cronjob-workflow.yaml
+    set:
+      workflows:
+        test-wf:
+          schedule: "0 10 * * *"
+          steps:
+            - name: step1
+              skill: "Do something"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.restartPolicy
+          value: Never

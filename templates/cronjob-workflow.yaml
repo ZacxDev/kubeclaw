@@ -1,0 +1,242 @@
+{{- $root := . -}}
+{{- range $wfName, $wf := .Values.workflows }}
+{{- $ns := include "kubeclaw.namespace" $root }}
+{{- $agentName := include "kubeclaw.fullname" $root }}
+{{- $agentId := include "kubeclaw.workflowAgentId" (dict "agent" $wf.agent "root" $root) }}
+{{- $defaults := $root.Values.workflowDefaults }}
+{{- $timeout := $wf.timeout | default $defaults.timeout }}
+{{- $concurrencyPolicy := $wf.concurrencyPolicy | default $defaults.concurrencyPolicy }}
+{{- $suspend := $wf.suspend | default $defaults.suspend }}
+{{- $gitSync := ternary $wf.gitSync $defaults.gitSync (hasKey $wf "gitSync") }}
+{{- $successfulJobsHistoryLimit := $wf.successfulJobsHistoryLimit | default $defaults.successfulJobsHistoryLimit }}
+{{- $failedJobsHistoryLimit := $wf.failedJobsHistoryLimit | default $defaults.failedJobsHistoryLimit }}
+{{- $resources := $wf.resources | default $defaults.resources }}
+{{- $hasInlineSkills := false }}
+{{- range $wf.steps }}
+{{- if .skill }}
+{{- $hasInlineSkills = true }}
+{{- end }}
+{{- end }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $agentName }}-wf-{{ $wfName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kubeclaw.workflowLabels" $root | nindent 4 }}
+    kubeclaw.dev/workflow: {{ $wfName }}
+spec:
+  schedule: {{ $wf.schedule | quote }}
+  concurrencyPolicy: {{ $concurrencyPolicy }}
+  suspend: {{ $suspend }}
+  successfulJobsHistoryLimit: {{ $successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: {{ $timeout }}
+      template:
+        metadata:
+          labels:
+            {{- include "kubeclaw.workflowLabels" $root | nindent 12 }}
+            kubeclaw.dev/workflow: {{ $wfName }}
+        spec:
+          serviceAccountName: {{ include "kubeclaw.workflowSaName" $root }}
+          restartPolicy: Never
+          containers:
+            - name: workflow
+              image: "{{ $root.Values.workflowImage.repository }}:{{ $root.Values.workflowImage.tag }}"
+              resources:
+                {{- toYaml $resources | nindent 16 }}
+              env:
+                - name: NS
+                  value: {{ $ns | quote }}
+                - name: AGENT_LABEL
+                  value: {{ $agentName | quote }}
+                - name: AGENT_ID
+                  value: {{ $agentId | quote }}
+                - name: WORKFLOW
+                  value: {{ $wfName | quote }}
+                {{- if and $wf.notify $wf.notify.telegram $wf.notify.telegram.chatId }}
+                - name: CHAT_ID
+                  value: {{ $wf.notify.telegram.chatId | quote }}
+                - name: TELEGRAM_BOT_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "kubeclaw.secretName" $root }}
+                      key: TELEGRAM_BOT_TOKEN
+                {{- end }}
+                {{- range $key, $val := $wf.context }}
+                - name: {{ $key }}
+                  value: {{ $val | quote }}
+                {{- end }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+
+                  DATE=$(date +%Y%m%d)
+                  TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                  OUTPUT_DIR="/tmp/workflow-output-{{ $wfName }}-${DATE}"
+                  {{- if and $wf.report $wf.report.path }}
+                  REPORT_PATH="{{ $wf.report.path | replace "{{workflow}}" $wfName | replace "{{date}}" "${DATE}" }}"
+                  {{- else }}
+                  REPORT_PATH=""
+                  {{- end }}
+
+                  mkdir -p "$OUTPUT_DIR"
+
+                  # --- Pod discovery ---
+                  echo "[$(date -Iseconds)] Discovering agent pod..."
+                  POD=$(kubectl get pods -n "$NS" -l app.kubernetes.io/instance="$AGENT_LABEL" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+                  if [ -z "$POD" ]; then
+                    echo "ERROR: agent pod not found (label: app.kubernetes.io/instance=$AGENT_LABEL)"
+                    {{- if and $wf.notify $wf.notify.telegram $wf.notify.telegram.chatId }}
+                    TMPFILE=$(mktemp)
+                    printf '%s' "Workflow {{ $wfName }} FAILED: agent pod not found" > "$TMPFILE"
+                    PAYLOAD=$(jq -n --rawfile text "$TMPFILE" --arg chat_id "$CHAT_ID" '{chat_id: $chat_id, text: $text}')
+                    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "$PAYLOAD" > /dev/null 2>&1 || true
+                    rm -f "$TMPFILE"
+                    {{- end }}
+                    exit 1
+                  fi
+                  echo "[$(date -Iseconds)] Found pod: $POD"
+
+                  {{- if $gitSync }}
+
+                  # --- Git sync ---
+                  echo "[$(date -Iseconds)] Syncing git repos..."
+                  kubectl exec -n "$NS" "$POD" -c agent -- \
+                    sh -c 'for d in /data/repos/*/; do [ -d "$d/.git" ] && (cd "$d" && git pull 2>&1 || echo "WARN: git pull failed in $d"); done' \
+                    2>&1 || echo "WARN: git sync failed, continuing with existing checkout"
+                  {{- end }}
+
+                  # --- Step execution ---
+                  {{- range $i, $step := $wf.steps }}
+                  {{- $stepTimeout := $step.timeout | default $defaults.timeout }}
+
+                  echo ""
+                  echo "================================================================"
+                  echo "[$(date -Iseconds)] Step {{ add $i 1 }}/{{ len $wf.steps }}: {{ $step.name }}"
+                  echo "================================================================"
+
+                  SESSION_ID="{{ $wfName }}-${TIMESTAMP}-{{ $step.name }}"
+
+                  {{- if $step.skill }}
+                  # Load inline skill from ConfigMap
+                  SKILL=$(cat /skills/{{ $step.name }}.md)
+                  {{- else if $step.skillRef }}
+                  # Load skill from agent pod filesystem
+                  SKILL=$(kubectl exec -n "$NS" "$POD" -c agent -- cat {{ $step.skillRef }} 2>/dev/null)
+                  if [ -z "$SKILL" ]; then
+                    echo "ERROR: could not read skill from {{ $step.skillRef }}"
+                    exit 1
+                  fi
+                  {{- end }}
+
+                  # Prepend context variables
+                  CONTEXT_BLOCK="Environment variables available:
+                  - OUTPUT_DIR=${OUTPUT_DIR}
+                  - REPORT_PATH=${REPORT_PATH}
+                  - DATE=${DATE}
+                  - WORKFLOW={{ $wfName }}
+                  - STEP={{ $step.name }}
+                  {{- range $key, $val := $wf.context }}
+                  - {{ $key }}={{ $val }}
+                  {{- end }}
+
+                  ---
+
+                  "
+                  FULL_MESSAGE="${CONTEXT_BLOCK}${SKILL}"
+
+                  STEP_OUTPUT=$(kubectl exec -n "$NS" "$POD" -c agent -- \
+                    clawdbot agent \
+                      --agent "$AGENT_ID" \
+                      --session-id "$SESSION_ID" \
+                      --message "$FULL_MESSAGE" \
+                      --timeout {{ $stepTimeout }} 2>/dev/null) || true
+
+                  if [ -z "$STEP_OUTPUT" ]; then
+                    echo "ERROR: step {{ $step.name }} returned empty output"
+                    {{- if and $wf.notify $wf.notify.telegram $wf.notify.telegram.chatId }}
+                    TMPFILE=$(mktemp)
+                    printf '%s' "Workflow {{ $wfName }} FAILED at step {{ $step.name }}: empty output" > "$TMPFILE"
+                    PAYLOAD=$(jq -n --rawfile text "$TMPFILE" --arg chat_id "$CHAT_ID" '{chat_id: $chat_id, text: $text}')
+                    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "$PAYLOAD" > /dev/null 2>&1 || true
+                    rm -f "$TMPFILE"
+                    {{- end }}
+                    exit 1
+                  fi
+
+                  echo "$STEP_OUTPUT" > "${OUTPUT_DIR}/{{ $step.name }}.txt"
+                  echo "[$(date -Iseconds)] Step {{ $step.name }} completed ($(echo "$STEP_OUTPUT" | wc -c) bytes)"
+
+                  {{- if $step.notify }}
+                  {{- if and $wf.notify $wf.notify.telegram $wf.notify.telegram.chatId }}
+                  # Send step output to Telegram
+                  TMPFILE=$(mktemp)
+                  printf '%s' "$STEP_OUTPUT" > "$TMPFILE"
+                  PAYLOAD=$(jq -n --rawfile text "$TMPFILE" --arg chat_id "$CHAT_ID" '{chat_id: $chat_id, text: $text, parse_mode: "Markdown"}')
+                  RESULT=$(curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "$PAYLOAD")
+                  OK=$(echo "$RESULT" | jq -r '.ok')
+                  if [ "$OK" != "true" ]; then
+                    echo "Telegram send failed, retrying without Markdown..."
+                    PAYLOAD=$(jq -n --rawfile text "$TMPFILE" --arg chat_id "$CHAT_ID" '{chat_id: $chat_id, text: $text}')
+                    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "$PAYLOAD" > /dev/null 2>&1 || true
+                  fi
+                  rm -f "$TMPFILE"
+                  {{- end }}
+                  {{- end }}
+
+                  {{- end }}{{/* end range steps */}}
+
+                  {{- if and $wf.report $wf.report.commit }}
+
+                  # --- Report commit ---
+                  echo ""
+                  echo "[$(date -Iseconds)] Committing report..."
+                  {{- $reportRepo := "" }}
+                  {{- if $wf.report.repo }}
+                  {{- $reportRepo = $wf.report.repo }}
+                  {{- else if $root.Values.git.repos }}
+                  {{- $reportRepo = (index $root.Values.git.repos 0).path }}
+                  {{- end }}
+                  {{- $reportBranch := $wf.report.branch | default "trunk" }}
+                  kubectl exec -n "$NS" "$POD" -c agent -- \
+                    sh -c "cd {{ $reportRepo }} && \
+                      git add ${REPORT_PATH} 2>/dev/null && \
+                      git diff --cached --quiet || \
+                      (git commit -m 'docs: add {{ $wfName }} report ${DATE}
+
+                  Co-Authored-By: {{ $agentId }} <{{ $agentId }}@clawdbot.local>' && \
+                      git push origin {{ $reportBranch }})" \
+                    2>&1 || echo "WARN: report commit/push failed"
+                  {{- end }}
+
+                  {{- if and $wf.notify $wf.notify.telegram $wf.notify.telegram.chatId }}
+
+                  # --- Completion notification ---
+                  TMPFILE=$(mktemp)
+                  printf '%s' "Workflow {{ $wfName }} completed successfully ({{ len $wf.steps }} steps)" > "$TMPFILE"
+                  PAYLOAD=$(jq -n --rawfile text "$TMPFILE" --arg chat_id "$CHAT_ID" '{chat_id: $chat_id, text: $text}')
+                  curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -H "Content-Type: application/json" -d "$PAYLOAD" > /dev/null 2>&1 || true
+                  rm -f "$TMPFILE"
+                  {{- end }}
+
+                  echo ""
+                  echo "[$(date -Iseconds)] Workflow {{ $wfName }} finished successfully."
+              {{- if $hasInlineSkills }}
+              volumeMounts:
+                - name: workflow-skills
+                  mountPath: /skills
+                  readOnly: true
+              {{- end }}
+          {{- if $hasInlineSkills }}
+          volumes:
+            - name: workflow-skills
+              configMap:
+                name: {{ $agentName }}-wf-{{ $wfName }}
+          {{- end }}
+{{- end }}

@@ -1,0 +1,108 @@
+agentName: fullbot
+agentDisplayName: "Full Test Bot"
+
+image:
+  repository: harbor.homelab.lan/library/clawdbot
+  tag: v1.2.3
+  pullPolicy: IfNotPresent
+
+git:
+  email: "test@example.com"
+  name: "Test Agent"
+  repos:
+    - url: "git@github.com:test/repo1.git"
+      path: "/data/repos/repo1"
+      branch: "main"
+    - url: "git@github.com:test/repo2.git"
+      path: "/data/repos/repo2"
+      branch: "develop"
+
+agent:
+  id: "custom-agent-id"
+  workspace: "/data/custom-workspace"
+  maxConcurrent: 8
+  model:
+    primary: "anthropic/claude-opus-4-5"
+  mentionPatterns:
+    - "@fullbot"
+    - "hey fullbot"
+
+skills:
+  fullbot.md: |
+    # Full Bot Skill
+    You are the full test bot.
+  helper.md: |
+    # Helper Skill
+    Additional instructions.
+
+channels:
+  matrix:
+    enabled: true
+    homeserver: "https://matrix.example.com"
+    dm:
+      policy: "open"
+      allowFrom: ["*"]
+    groupPolicy: "open"
+    autoJoin: "always"
+  telegram:
+    enabled: true
+
+tools:
+  web:
+    search:
+      enabled: true
+      provider: "brave"
+      maxResults: 5
+
+gateway:
+  mode: "local"
+  callbackUrl: "http://gateway.example.com:18789"
+
+hooks:
+  enabled: true
+  mappings:
+    - match: { path: "custom" }
+      action: "agent"
+      wakeMode: "now"
+      name: "Custom Hook"
+
+existingSecret: devpod-secrets
+
+namespace:
+  create: true
+
+rbac:
+  create: true
+  clusterAdmin:
+    enabled: true
+
+infraTools:
+  enabled: true
+  kubeconfigs:
+    existingSecret: kubeconfigs
+
+extraConfigMaps:
+  - name: agents-registry
+    mountPath: /config/agents
+    data:
+      agents.json: |
+        {"agents": []}
+
+extraEnv:
+  - name: CUSTOM_VAR
+    value: "custom-value"
+
+persistence:
+  enabled: true
+  storageClass: "fast-ssd"
+  size: 50Gi
+  accessModes:
+    - ReadWriteOnce
+
+resources:
+  requests:
+    memory: "1Gi"
+    cpu: "500m"
+  limits:
+    memory: "4Gi"
+    cpu: "4000m"

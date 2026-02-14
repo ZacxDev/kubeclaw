@@ -1,0 +1,39 @@
+suite: notes
+templates:
+  - templates/NOTES.txt
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should display agent info
+    asserts:
+      - equalRaw:
+          value: |
+            KubeClaw agent "testbot" deployed!
+
+            Namespace: devpod-testbot
+            Agent ID:  testbot
+            Display:   testbot Dev
+
+            Check status:
+              kubectl get pods -n devpod-testbot
+
+            View logs:
+              kubectl logs -n devpod-testbot deployment/testbot-devpod -f
+
+            Service endpoint:
+              testbot-devpod.devpod-testbot.svc.cluster.local:18789
+
+  - it: should show cluster-admin warning when enabled
+    set:
+      rbac:
+        clusterAdmin:
+          enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "WARNING.*cluster-admin"
+
+  - it: should not show warning when clusterAdmin disabled
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "WARNING"

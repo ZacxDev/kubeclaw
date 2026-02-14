@@ -1,0 +1,59 @@
+suite: pvc
+templates:
+  - templates/pvc.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should create PVC when persistence enabled
+    set:
+      persistence:
+        enabled: true
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: metadata.name
+          value: testbot-data
+
+  - it: should not create PVC when persistence disabled
+    set:
+      persistence:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create PVC when existingClaim set
+    set:
+      persistence:
+        enabled: true
+        existingClaim: my-existing-pvc
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set correct size and access modes
+    set:
+      persistence:
+        enabled: true
+        size: 50Gi
+        accessModes:
+          - ReadWriteMany
+    asserts:
+      - equal:
+          path: spec.resources.requests.storage
+          value: 50Gi
+      - contains:
+          path: spec.accessModes
+          content: ReadWriteMany
+
+  - it: should set storageClass when specified
+    set:
+      persistence:
+        enabled: true
+        storageClass: "fast-ssd"
+    asserts:
+      - equal:
+          path: spec.storageClassName
+          value: "fast-ssd"

@@ -1,0 +1,145 @@
+suite: rbac
+templates:
+  - templates/serviceaccount.yaml
+  - templates/role.yaml
+  - templates/rolebinding.yaml
+  - templates/clusterrolebinding.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should create ServiceAccount when rbac enabled
+    template: templates/serviceaccount.yaml
+    set:
+      rbac:
+        create: true
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - equal:
+          path: metadata.name
+          value: testbot-devpod
+
+  - it: should not create ServiceAccount when rbac disabled
+    template: templates/serviceaccount.yaml
+    set:
+      rbac:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create Role when rbac enabled
+    template: templates/role.yaml
+    set:
+      rbac:
+        create: true
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.name
+          value: testbot-reader
+
+  - it: should not create Role when rbac disabled
+    template: templates/role.yaml
+    set:
+      rbac:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should have correct Role rules
+    template: templates/role.yaml
+    set:
+      rbac:
+        create: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["pods", "pods/log", "services", "configmaps"]
+            verbs: ["get", "list", "watch"]
+
+  - it: should create RoleBinding when rbac enabled
+    template: templates/rolebinding.yaml
+    set:
+      rbac:
+        create: true
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: roleRef.name
+          value: testbot-reader
+
+  - it: should not create RoleBinding when rbac disabled
+    template: templates/rolebinding.yaml
+    set:
+      rbac:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set correct RoleBinding subjects
+    template: templates/rolebinding.yaml
+    set:
+      rbac:
+        create: true
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: testbot-devpod
+      - equal:
+          path: subjects[0].namespace
+          value: devpod-testbot
+
+  - it: should create ClusterRoleBinding when clusterAdmin enabled
+    template: templates/clusterrolebinding.yaml
+    set:
+      rbac:
+        clusterAdmin:
+          enabled: true
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: roleRef.name
+          value: cluster-admin
+
+  - it: should not create ClusterRoleBinding when clusterAdmin disabled
+    template: templates/clusterrolebinding.yaml
+    set:
+      rbac:
+        clusterAdmin:
+          enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should set ClusterRoleBinding subject to correct SA
+    template: templates/clusterrolebinding.yaml
+    set:
+      rbac:
+        clusterAdmin:
+          enabled: true
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: testbot-devpod
+      - equal:
+          path: subjects[0].namespace
+          value: devpod-testbot
+
+  - it: should set correct namespace on Role
+    template: templates/role.yaml
+    set:
+      rbac:
+        create: true
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: devpod-testbot

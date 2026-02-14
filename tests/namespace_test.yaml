@@ -1,0 +1,33 @@
+suite: namespace
+templates:
+  - templates/namespace.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should create Namespace when enabled
+    set:
+      namespace:
+        create: true
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: devpod-testbot
+
+  - it: should not create Namespace when disabled
+    set:
+      namespace:
+        create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should include standard labels
+    set:
+      namespace:
+        create: true
+    asserts:
+      - isNotNull:
+          path: metadata.labels["app.kubernetes.io/name"]

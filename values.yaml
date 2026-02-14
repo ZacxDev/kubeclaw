@@ -186,6 +186,64 @@ resources:
     memory: "2Gi"
     cpu: "2000m"
 
+# -- Workflow orchestration image (used by CronJob pods to exec into agent)
+workflowImage:
+  repository: bitnami/kubectl
+  tag: latest
+
+# -- Default settings for all workflows (can be overridden per workflow)
+workflowDefaults:
+  # -- Per-step timeout in seconds
+  timeout: 900
+  # -- CronJob concurrency policy
+  concurrencyPolicy: Forbid
+  # -- Suspend the CronJob
+  suspend: false
+  # -- Pull git repos before running steps
+  gitSync: true
+  # -- Number of successful job runs to keep
+  successfulJobsHistoryLimit: 3
+  # -- Number of failed job runs to keep
+  failedJobsHistoryLimit: 3
+  # -- Resource requests/limits for workflow CronJob pods
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+
+# -- Workflow definitions. Each key creates a CronJob that orchestrates
+# sequential agent steps via kubectl exec into the running agent pod.
+# See examples/workflow-product-iteration.yaml for a full example.
+workflows: {}
+# example-workflow:
+#   schedule: "0 10 * * *"
+#   timeout: 1800
+#   agent: ""
+#   gitSync: true
+#   concurrencyPolicy: Forbid
+#   suspend: false
+#   context:
+#     CUSTOM_VAR: "value"
+#   report:
+#     path: "reports/{{workflow}}-{{date}}.md"
+#     commit: true
+#     branch: "trunk"
+#     repo: ""
+#   notify:
+#     telegram:
+#       chatId: ""
+#     matrix:
+#       enabled: false
+#   steps:
+#     - name: "step-one"
+#       skill: |
+#         Do something...
+#       timeout: 300
+#       notify: false
+
 # -- Pod-level settings
 nodeSelector: {}
 tolerations: []

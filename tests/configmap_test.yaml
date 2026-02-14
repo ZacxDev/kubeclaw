@@ -1,0 +1,76 @@
+suite: configmap
+templates:
+  - templates/configmap.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should create a ConfigMap
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: testbot-config
+
+  - it: should set correct namespace
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: devpod-testbot
+
+  - it: should use agentName as agent ID by default
+    asserts:
+      - matchRegex:
+          path: data["clawdbot.json"]
+          pattern: '"id":\s*"testbot"'
+
+  - it: should use custom agent ID when set
+    set:
+      agent:
+        id: custom-id
+    asserts:
+      - matchRegex:
+          path: data["clawdbot.json"]
+          pattern: '"id":\s*"custom-id"'
+
+  - it: should use default workspace path
+    asserts:
+      - matchRegex:
+          path: data["clawdbot.json"]
+          pattern: "/data/workspace"
+
+  - it: should use first repo path as workspace
+    set:
+      git:
+        repos:
+          - url: "git@github.com:test/repo.git"
+            path: "/data/repos/myrepo"
+            branch: "main"
+    asserts:
+      - matchRegex:
+          path: data["clawdbot.json"]
+          pattern: "/data/repos/myrepo"
+
+  - it: should use rawConfig when set
+    set:
+      rawConfig:
+        custom: true
+        agents:
+          list: []
+    asserts:
+      - matchRegex:
+          path: data["clawdbot.json"]
+          pattern: '"custom"'
+
+  - it: should generate repos.json
+    set:
+      git:
+        repos:
+          - url: "git@github.com:test/repo.git"
+            path: "/data/repos/repo"
+            branch: "main"
+    asserts:
+      - matchRegex:
+          path: data["repos.json"]
+          pattern: "git@github.com:test/repo.git"

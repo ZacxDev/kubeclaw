@@ -1,0 +1,57 @@
+# Stock News Workflow
+# Migrated from: stock-news-cronjob.yaml
+#
+# Single-step daily workflow that runs on weekday mornings.
+# Agent summarizes market news for a watchlist and sends via Telegram.
+
+agentName: stockbot
+
+git:
+  email: "zacxdev@gmail.com"
+  name: "StockBot (DevPod)"
+  repos:
+    - url: "git@github.com:ZacxDev/stock-tracker.git"
+      path: "/data/repos/stock-tracker"
+      branch: "main"
+
+agent:
+  id: stockbot
+  model:
+    primary: "anthropic/claude-sonnet-4"
+  mentionPatterns:
+    - "@stockbot"
+    - "stockbot"
+
+skills:
+  stockbot.md: |
+    # StockBot Skill
+    You are a financial news analyst assistant.
+
+existingSecret: devpod-secrets
+
+workflows:
+  daily-stocks:
+    schedule: "0 13 * * 1-5"
+    timeout: 600
+    agent: stockbot
+    notify:
+      telegram:
+        chatId: "5111747585"
+    steps:
+      - name: market-summary
+        timeout: 300
+        notify: true
+        skill: |
+          # Daily Stock Market Summary
+
+          Provide a brief daily summary of:
+
+          1. **Market Overview**: Major index movements (S&P 500, NASDAQ, DOW)
+          2. **Watchlist**: Key news for stocks in the watchlist file
+             at /data/repos/stock-tracker/watchlist.txt
+          3. **Notable Events**: Any significant market-moving news
+
+          Format for Telegram (<3500 chars):
+          - Use bold for headers
+          - Include percentage changes where relevant
+          - Keep commentary brief and data-focused

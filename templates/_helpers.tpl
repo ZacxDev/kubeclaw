@@ -105,3 +105,42 @@ PVC name — persistence.existingClaim or {fullname}-data
 {{- printf "%s-data" (include "kubeclaw.fullname" .) }}
 {{- end }}
 {{- end }}
+
+{{/*
+Whether any workflows are defined.
+*/}}
+{{- define "kubeclaw.hasWorkflows" -}}
+{{- if .Values.workflows }}
+{{- if gt (len .Values.workflows) 0 }}true{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Workflow ServiceAccount name — {agentName}-workflow
+*/}}
+{{- define "kubeclaw.workflowSaName" -}}
+{{- printf "%s-workflow" (include "kubeclaw.fullname" .) }}
+{{- end }}
+
+{{/*
+Workflow labels — standard labels with workflow component
+*/}}
+{{- define "kubeclaw.workflowLabels" -}}
+helm.sh/chart: {{ include "kubeclaw.chart" . }}
+app.kubernetes.io/name: devpod
+app.kubernetes.io/instance: {{ include "kubeclaw.fullname" . }}
+app.kubernetes.io/component: workflow
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: clawdbot-devpods
+{{- end }}
+
+{{/*
+Workflow agent ID — uses workflow-level agent override or chart default
+*/}}
+{{- define "kubeclaw.workflowAgentId" -}}
+{{- if .agent }}
+{{- .agent }}
+{{- else }}
+{{- include "kubeclaw.agentId" .root }}
+{{- end }}
+{{- end }}
