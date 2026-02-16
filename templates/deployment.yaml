@@ -151,13 +151,36 @@ spec:
               echo "[$(date -Iseconds)] Running openclaw doctor --fix..."
               openclaw doctor --fix || echo "Doctor exited with $?, continuing..."
 
-              # --- Copy auth from main agent to configured agent ---
+              # --- Bootstrap agent auth from Claude credentials ---
               AGENT_ID="{{ include "kubeclaw.agentId" . }}"
-              if [ "$AGENT_ID" != "main" ] && [ -f /root/.openclaw/agents/main/agent/auth-profiles.json ]; then
-                mkdir -p "/root/.openclaw/agents/$AGENT_ID/agent"
-                cp /root/.openclaw/agents/main/agent/auth-profiles.json \
-                   "/root/.openclaw/agents/$AGENT_ID/agent/auth-profiles.json"
-                echo "[$(date -Iseconds)] Copied auth from main to agent '$AGENT_ID'"
+              AGENT_AUTH_DIR="/root/.openclaw/agents/$AGENT_ID/agent"
+              CREDS_FILE="/root/.claude/.credentials.json"
+              if [ -f "$CREDS_FILE" ]; then
+                OAUTH_TOKEN=$(jq -r '.claudeAiOauth.accessToken // empty' "$CREDS_FILE" 2>/dev/null)
+                if [ -n "$OAUTH_TOKEN" ]; then
+                  mkdir -p "$AGENT_AUTH_DIR"
+                  cat > "$AGENT_AUTH_DIR/auth-profiles.json" <<AUTHEOF
+{
+  "profiles": {
+    "anthropic:claude-sub": {
+      "id": "anthropic:claude-sub",
+      "provider": "anthropic",
+      "method": "oauth",
+      "token": "$OAUTH_TOKEN",
+      "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    }
+  },
+  "order": ["anthropic:claude-sub"]
+}
+AUTHEOF
+                  chmod 600 "$AGENT_AUTH_DIR/auth-profiles.json"
+                  echo "[$(date -Iseconds)] Created auth-profiles for agent '$AGENT_ID' from Claude credentials"
+                fi
+              fi
+              # Also copy to main agent dir as fallback
+              if [ -f "$AGENT_AUTH_DIR/auth-profiles.json" ]; then
+                mkdir -p /root/.openclaw/agents/main/agent
+                cp "$AGENT_AUTH_DIR/auth-profiles.json" /root/.openclaw/agents/main/agent/auth-profiles.json
               fi
 
               # --- Gateway restart loop ---
