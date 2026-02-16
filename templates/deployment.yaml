@@ -159,28 +159,17 @@ spec:
                 OAUTH_TOKEN=$(jq -r '.claudeAiOauth.accessToken // empty' "$CREDS_FILE" 2>/dev/null)
                 if [ -n "$OAUTH_TOKEN" ]; then
                   mkdir -p "$AGENT_AUTH_DIR"
-                  cat > "$AGENT_AUTH_DIR/auth-profiles.json" <<AUTHEOF
-{
-  "profiles": {
-    "anthropic:claude-sub": {
-      "id": "anthropic:claude-sub",
-      "provider": "anthropic",
-      "method": "oauth",
-      "token": "$OAUTH_TOKEN",
-      "createdAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    }
-  },
-  "order": ["anthropic:claude-sub"]
-}
-AUTHEOF
+                  CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+                  jq -n \
+                    --arg token "$OAUTH_TOKEN" \
+                    --arg created "$CREATED_AT" \
+                    '{"profiles":{"anthropic:claude-sub":{"id":"anthropic:claude-sub","provider":"anthropic","method":"oauth","token":$token,"createdAt":$created}},"order":["anthropic:claude-sub"]}' \
+                    > "$AGENT_AUTH_DIR/auth-profiles.json"
                   chmod 600 "$AGENT_AUTH_DIR/auth-profiles.json"
                   echo "[$(date -Iseconds)] Created auth-profiles for agent '$AGENT_ID' from Claude credentials"
+                  mkdir -p /root/.openclaw/agents/main/agent
+                  cp "$AGENT_AUTH_DIR/auth-profiles.json" /root/.openclaw/agents/main/agent/auth-profiles.json
                 fi
-              fi
-              # Also copy to main agent dir as fallback
-              if [ -f "$AGENT_AUTH_DIR/auth-profiles.json" ]; then
-                mkdir -p /root/.openclaw/agents/main/agent
-                cp "$AGENT_AUTH_DIR/auth-profiles.json" /root/.openclaw/agents/main/agent/auth-profiles.json
               fi
 
               # --- Gateway restart loop ---

@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubeclaw
 description: A Helm chart for deploying OpenClaw AI agent devpods
 type: application
-version: 0.2.2
+version: 0.2.3
 appVersion: "latest"
 maintainers:
   - name: Zach
