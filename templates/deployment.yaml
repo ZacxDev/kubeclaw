@@ -151,6 +151,15 @@ spec:
               echo "[$(date -Iseconds)] Running openclaw doctor --fix..."
               openclaw doctor --fix || echo "Doctor exited with $?, continuing..."
 
+              # --- Copy auth from main agent to configured agent ---
+              AGENT_ID="{{ include "kubeclaw.agentId" . }}"
+              if [ "$AGENT_ID" != "main" ] && [ -f /root/.openclaw/agents/main/agent/auth-profiles.json ]; then
+                mkdir -p "/root/.openclaw/agents/$AGENT_ID/agent"
+                cp /root/.openclaw/agents/main/agent/auth-profiles.json \
+                   "/root/.openclaw/agents/$AGENT_ID/agent/auth-profiles.json"
+                echo "[$(date -Iseconds)] Copied auth from main to agent '$AGENT_ID'"
+              fi
+
               # --- Gateway restart loop ---
               while true; do
                 echo "[$(date -Iseconds)] Starting openclaw gateway..."
