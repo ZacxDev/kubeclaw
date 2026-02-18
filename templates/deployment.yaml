@@ -147,6 +147,14 @@ spec:
                 > /root/.openclaw/openclaw.json
               chmod 600 /root/.openclaw/openclaw.json
 
+              # --- Pre-approve Telegram users ---
+              {{- if and .Values.channels.telegram.enabled .Values.channels.telegram.allowFrom }}
+              mkdir -p /root/.openclaw/credentials
+              printf '%s\n' '{{ dict "version" 1 "allowFrom" .Values.channels.telegram.allowFrom | toJson }}' > /root/.openclaw/credentials/telegram-allowFrom.json
+              chmod 600 /root/.openclaw/credentials/telegram-allowFrom.json
+              echo "[$(date -Iseconds)] Pre-approved Telegram users: {{ .Values.channels.telegram.allowFrom | toJson }}"
+              {{- end }}
+
               # --- Initialize channels ---
               echo "[$(date -Iseconds)] Running openclaw doctor --fix..."
               openclaw doctor --fix || echo "Doctor exited with $?, continuing..."

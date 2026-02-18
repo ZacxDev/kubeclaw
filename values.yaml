@@ -70,6 +70,8 @@ channels:
   telegram:
     # -- Enable Telegram channel
     enabled: false
+    # -- Pre-approved Telegram user IDs (skips pairing flow)
+    allowFrom: []
 
 # -- Tools configuration
 tools:
