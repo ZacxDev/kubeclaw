@@ -1,0 +1,11 @@
+{{- if .Values.workspaceFiles }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-workspace
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+data:
+  files.json: {{ .Values.workspaceFiles | toJson | quote }}
+{{- end }}

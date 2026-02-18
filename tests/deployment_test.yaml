@@ -3,6 +3,7 @@ templates:
   - templates/deployment.yaml
   - templates/configmap.yaml
   - templates/configmap-skills.yaml
+  - templates/configmap-workspace.yaml
 set:
   agentName: testbot
   existingSecret: devpod-secrets
@@ -187,4 +188,42 @@ tests:
           content:
             name: CUSTOM_VAR
             value: "custom-value"
+        template: templates/deployment.yaml
+
+  - it: should mount workspace volume when workspaceFiles defined
+    set:
+      workspaceFiles:
+        - path: CLAUDE.md
+          url: "http://minio.example.com/bucket/workspace/abc/CLAUDE.md?sig=xxx"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: workspace
+            mountPath: /config/workspace
+            readOnly: true
+        template: templates/deployment.yaml
+
+  - it: should not mount workspace volume when no workspaceFiles
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: workspace
+            mountPath: /config/workspace
+            readOnly: true
+        template: templates/deployment.yaml
+
+  - it: should include workspace configmap volume when workspaceFiles defined
+    set:
+      workspaceFiles:
+        - path: CLAUDE.md
+          url: "http://minio.example.com/bucket/workspace/abc/CLAUDE.md?sig=xxx"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: workspace
+            configMap:
+              name: testbot-workspace
         template: templates/deployment.yaml

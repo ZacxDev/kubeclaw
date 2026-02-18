@@ -42,7 +42,7 @@ Workspace — agent.workspace or first repo path or /data/workspace
 {{- .Values.agent.workspace }}
 {{- else if .Values.git.repos }}
 {{- (index .Values.git.repos 0).path }}
-{{- else }}
+{{- else -}}
 /data/workspace
 {{- end }}
 {{- end }}

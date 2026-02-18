@@ -1,0 +1,60 @@
+suite: configmap-workspace
+templates:
+  - templates/configmap-workspace.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should not create ConfigMap when no workspaceFiles
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create ConfigMap when workspaceFiles provided
+    set:
+      workspaceFiles:
+        - path: CLAUDE.md
+          url: "http://minio.example.com/bucket/workspace/abc/CLAUDE.md?sig=xxx"
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: testbot-workspace
+      - equal:
+          path: metadata.namespace
+          value: devpod-testbot
+
+  - it: should store files as JSON in files.json key
+    set:
+      workspaceFiles:
+        - path: CLAUDE.md
+          url: "http://minio.example.com/bucket/workspace/abc/CLAUDE.md?sig=xxx"
+    asserts:
+      - isNotEmpty:
+          path: data["files.json"]
+
+  - it: should include multiple files in JSON blob
+    set:
+      workspaceFiles:
+        - path: CLAUDE.md
+          url: "http://minio.example.com/bucket/workspace/abc/CLAUDE.md?sig=xxx"
+        - path: src/config.yaml
+          url: "http://minio.example.com/bucket/workspace/abc/src/config.yaml?sig=yyy"
+    asserts:
+      - matchRegex:
+          path: data["files.json"]
+          pattern: "CLAUDE.md"
+      - matchRegex:
+          path: data["files.json"]
+          pattern: "src/config.yaml"
+
+  - it: should have correct labels
+    set:
+      workspaceFiles:
+        - path: test.md
+          url: "http://minio.example.com/bucket/workspace/abc/test.md?sig=zzz"
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: devpod
