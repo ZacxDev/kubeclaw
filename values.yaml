@@ -101,6 +101,13 @@ gateway:
   # -- Callback URL for the main openclaw gateway (for result posting).
   # Set to the main openclaw service URL if agents need to report back.
   callbackUrl: ""
+  # -- HTTP endpoint settings
+  http:
+    endpoints:
+      # -- Enable OpenAI-compatible POST /v1/chat/completions endpoint.
+      # Required for ClawSail built-in chat.
+      chatCompletions:
+        enabled: true
 
 # -- Commands configuration
 commands:

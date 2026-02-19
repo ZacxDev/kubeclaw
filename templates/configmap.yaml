@@ -56,7 +56,14 @@ data:
         }
       },
       "gateway": {
-        "mode": {{ .Values.gateway.mode | quote }}
+        "mode": {{ .Values.gateway.mode | quote }},
+        "http": {
+          "endpoints": {
+            "chatCompletions": {
+              "enabled": {{ .Values.gateway.http.endpoints.chatCompletions.enabled }}
+            }
+          }
+        }
       },
       "commands": {
         "native": {{ .Values.commands.native | quote }},
