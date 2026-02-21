@@ -199,6 +199,11 @@ spec:
                 fi
               fi
 
+              {{- if .Values.extraInitCommands }}
+              # --- Extra init commands ---
+              {{ .Values.extraInitCommands | nindent 14 }}
+              {{- end }}
+
               # --- Gateway restart loop ---
               while true; do
                 echo "[$(date -Iseconds)] Starting openclaw gateway..."
