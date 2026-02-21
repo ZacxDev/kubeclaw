@@ -183,12 +183,14 @@ spec:
               if [ -f "$CREDS_FILE" ]; then
                 OAUTH_TOKEN=$(jq -r '.claudeAiOauth.accessToken // empty' "$CREDS_FILE" 2>/dev/null)
                 if [ -n "$OAUTH_TOKEN" ]; then
+                  REFRESH_TOKEN=$(jq -r '.claudeAiOauth.refreshToken // empty' "$CREDS_FILE" 2>/dev/null)
+                  EXPIRES_AT=$(jq -r '.claudeAiOauth.expiresAt // 0' "$CREDS_FILE" 2>/dev/null)
                   mkdir -p "$AGENT_AUTH_DIR"
-                  CREATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
                   jq -n \
-                    --arg token "$OAUTH_TOKEN" \
-                    --arg created "$CREATED_AT" \
-                    '{"profiles":{"anthropic:claude-sub":{"id":"anthropic:claude-sub","provider":"anthropic","method":"oauth","token":$token,"createdAt":$created}},"order":["anthropic:claude-sub"]}' \
+                    --arg access "$OAUTH_TOKEN" \
+                    --arg refresh "$REFRESH_TOKEN" \
+                    --argjson expires "$EXPIRES_AT" \
+                    '{"version":1,"profiles":{"anthropic:claude-cli":{"type":"oauth","provider":"anthropic","access":$access,"refresh":$refresh,"expires":$expires}}}' \
                     > "$AGENT_AUTH_DIR/auth-profiles.json"
                   chmod 600 "$AGENT_AUTH_DIR/auth-profiles.json"
                   echo "[$(date -Iseconds)] Created auth-profiles for agent '$AGENT_ID' from Claude credentials"
