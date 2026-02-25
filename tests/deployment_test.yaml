@@ -4,6 +4,7 @@ templates:
   - templates/configmap.yaml
   - templates/configmap-skills.yaml
   - templates/configmap-workspace.yaml
+  - templates/configmap-workspace-content.yaml
 set:
   agentName: testbot
   existingSecret: devpod-secrets
@@ -226,4 +227,40 @@ tests:
             name: workspace
             configMap:
               name: testbot-workspace
+        template: templates/deployment.yaml
+
+  - it: should mount workspace-content volume when workspaceContent defined
+    set:
+      workspaceContent:
+        AGENTS.md: "test content"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: workspace-content
+            mountPath: /config/workspace-content
+            readOnly: true
+        template: templates/deployment.yaml
+
+  - it: should not mount workspace-content volume when no workspaceContent
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: workspace-content
+            mountPath: /config/workspace-content
+            readOnly: true
+        template: templates/deployment.yaml
+
+  - it: should include workspace-content configmap volume when workspaceContent defined
+    set:
+      workspaceContent:
+        AGENTS.md: "test content"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: workspace-content
+            configMap:
+              name: testbot-workspace-content
         template: templates/deployment.yaml

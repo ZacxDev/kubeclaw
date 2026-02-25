@@ -61,6 +61,17 @@ workspaceFiles: []
 # - path: src/config.yaml
 #   url: "http://minio.minio-tenant.svc.cluster.local/clawsail/workspace/abc/src/config.yaml?X-Amz-..."
 
+# -- Inline content files to place in the agent's workspace directory on startup.
+# Map of relative path to file content. Unlike workspaceFiles (which downloads from URLs),
+# this embeds content directly in the Helm values. Ideal for AGENTS.md, CLAUDE.md, etc.
+workspaceContent: {}
+# AGENTS.md: |
+#   # Project Instructions
+#   Always use feature branches...
+# CLAUDE.md: |
+#   # Claude Code Instructions
+#   ...
+
 # -- Channel configuration
 channels:
   matrix:

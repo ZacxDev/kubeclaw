@@ -24,6 +24,9 @@ spec:
         {{- if .Values.workspaceFiles }}
         checksum/workspace: {{ include (print $.Template.BasePath "/configmap-workspace.yaml") . | sha256sum }}
         {{- end }}
+        {{- if .Values.workspaceContent }}
+        checksum/workspace-content: {{ include (print $.Template.BasePath "/configmap-workspace-content.yaml") . | sha256sum }}
+        {{- end }}
     spec:
       {{- if .Values.rbac.create }}
       serviceAccountName: {{ include "kubeclaw.fullname" . }}-devpod
@@ -97,6 +100,18 @@ spec:
                   curl -fsSL "$furl" -o "$WORKSPACE/$fpath"
                 done
                 echo "Workspace files installed: $(jq 'length' /config/workspace/files.json) files"
+              fi
+
+              # --- Workspace content (inline) ---
+              if [ -d /config/workspace-content ]; then
+                WORKSPACE="{{ include "kubeclaw.workspace" . }}"
+                mkdir -p "$WORKSPACE"
+                for f in /config/workspace-content/*; do
+                  [ -f "$f" ] || continue
+                  fname=$(basename "$f")
+                  cp "$f" "$WORKSPACE/$fname"
+                done
+                echo "Workspace content files installed"
               fi
 
               # --- OAuth credentials ---
@@ -257,6 +272,11 @@ spec:
               mountPath: /config/workspace
               readOnly: true
             {{- end }}
+            {{- if .Values.workspaceContent }}
+            - name: workspace-content
+              mountPath: /config/workspace-content
+              readOnly: true
+            {{- end }}
             {{- if and .Values.infraTools.enabled .Values.infraTools.kubeconfigs.existingSecret }}
             - name: kubeconfigs
               mountPath: /etc/kubeconfigs
@@ -315,6 +335,11 @@ spec:
         - name: workspace
           configMap:
             name: {{ include "kubeclaw.fullname" . }}-workspace
+        {{- end }}
+        {{- if .Values.workspaceContent }}
+        - name: workspace-content
+          configMap:
+            name: {{ include "kubeclaw.fullname" . }}-workspace-content
         {{- end }}
         {{- if and .Values.infraTools.enabled .Values.infraTools.kubeconfigs.existingSecret }}
         - name: kubeconfigs

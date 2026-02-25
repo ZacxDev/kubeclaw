@@ -1,0 +1,60 @@
+suite: configmap-workspace-content
+templates:
+  - templates/configmap-workspace-content.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: should not create ConfigMap when no workspaceContent
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create ConfigMap when workspaceContent provided
+    set:
+      workspaceContent:
+        AGENTS.md: |
+          # Test Instructions
+          Always use feature branches.
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: testbot-workspace-content
+      - equal:
+          path: metadata.namespace
+          value: devpod-testbot
+
+  - it: should include content in data
+    set:
+      workspaceContent:
+        AGENTS.md: |
+          # Test Instructions
+          Always use feature branches.
+    asserts:
+      - matchRegex:
+          path: data["AGENTS.md"]
+          pattern: "feature branches"
+
+  - it: should support multiple files
+    set:
+      workspaceContent:
+        AGENTS.md: |
+          # Agent Instructions
+        CLAUDE.md: |
+          # Claude Instructions
+    asserts:
+      - isNotEmpty:
+          path: data["AGENTS.md"]
+      - isNotEmpty:
+          path: data["CLAUDE.md"]
+
+  - it: should have correct labels
+    set:
+      workspaceContent:
+        AGENTS.md: "test"
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: devpod

@@ -35,6 +35,14 @@ skills:
     # Helper Skill
     Additional instructions.
 
+workspaceContent:
+  AGENTS.md: |
+    # Project Instructions
+    Always use feature branches for changes.
+  CLAUDE.md: |
+    # Claude Code Instructions
+    Follow the project conventions.
+
 channels:
   matrix:
     enabled: true
