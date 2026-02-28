@@ -103,6 +103,15 @@ data:
             "deliver": false
           }
           {{- end }}
+          {{- if .Values.channels.email.enabled }},
+          {
+            "match": { "path": "email" },
+            "action": "agent",
+            "wakeMode": "now",
+            "messageTemplate": "New email received:\nFrom: {{`{{from}}`}}\nSubject: {{`{{subject}}`}}\n\n{{`{{body}}`}}",
+            "deliver": false
+          }
+          {{- end }}
         ]
       }
     }
