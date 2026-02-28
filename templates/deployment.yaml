@@ -167,6 +167,12 @@ spec:
               sops --version 2>/dev/null || true
               {{- end }}
 
+              # --- Persist WhatsApp Baileys credentials across restarts ---
+              {{- if .Values.channels.whatsapp.enabled }}
+              mkdir -p /data/whatsapp-creds /root/.openclaw/credentials
+              ln -sfn /data/whatsapp-creds /root/.openclaw/credentials/whatsapp
+              {{- end }}
+
               # --- Generate openclaw.json with secrets injected ---
               cat /config/openclaw.json | jq \
                 --arg matrix_token "$MATRIX_ACCESS_TOKEN" \

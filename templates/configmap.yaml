@@ -44,6 +44,15 @@ data:
         },
         "telegram": {
           "enabled": {{ .Values.channels.telegram.enabled }}
+        },
+        "whatsapp": {
+          "enabled": {{ .Values.channels.whatsapp.enabled }},
+          "dm": {
+            "policy": {{ .Values.channels.whatsapp.dmPolicy | quote }},
+            "allowFrom": {{ .Values.channels.whatsapp.allowFrom | toJson }}
+          },
+          "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},
+          "sendReadReceipts": {{ .Values.channels.whatsapp.sendReadReceipts }}
         }
       },
       "tools": {

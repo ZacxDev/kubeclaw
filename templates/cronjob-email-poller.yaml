@@ -1,0 +1,117 @@
+{{- if .Values.channels.email.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-email-poller
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+data:
+  poll-emails.sh: |
+    #!/bin/sh
+    set -e
+
+    MAILPIT_URL="{{ .Values.channels.email.mailpitUrl }}"
+    AGENT_EMAIL="{{ .Values.channels.email.address }}"
+    AGENT_URL="http://{{ include "kubeclaw.fullname" . }}-devpod.{{ include "kubeclaw.namespace" . }}.svc.cluster.local:18789/hooks/email"
+
+    echo "Checking for new emails to ${AGENT_EMAIL}..."
+
+    # Search for unread messages addressed to this agent
+    MESSAGES=$(curl -sf "${MAILPIT_URL}/api/v1/search?query=to:${AGENT_EMAIL}&limit=50" | jq -r '.messages[]? | select(.Read == false) | .ID')
+
+    if [ -z "$MESSAGES" ]; then
+      echo "No new emails found"
+      exit 0
+    fi
+
+    for MSG_ID in $MESSAGES; do
+      echo "Processing message: $MSG_ID"
+
+      # Get message details
+      MSG=$(curl -sf "${MAILPIT_URL}/api/v1/message/${MSG_ID}")
+
+      FROM=$(echo "$MSG" | jq -r '.From.Address // .From.Name // "unknown"')
+      SUBJECT=$(echo "$MSG" | jq -r '.Subject // "No subject"')
+      BODY=$(echo "$MSG" | jq -r '.Text // .HTML // "No body"' | head -c 2000)
+
+      echo "From: $FROM"
+      echo "Subject: $SUBJECT"
+
+      # Send to agent hooks endpoint
+      PAYLOAD=$(jq -n \
+        --arg from "$FROM" \
+        --arg subject "$SUBJECT" \
+        --arg body "$BODY" \
+        '{from: $from, subject: $subject, body: $body}')
+
+      HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
+        -X POST "${AGENT_URL}" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${HOOKS_TOKEN}" \
+        -d "$PAYLOAD" || echo "000")
+
+      if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
+        echo "Successfully forwarded to agent"
+        # Mark as read
+        curl -sf -X PUT "${MAILPIT_URL}/api/v1/messages" \
+          -H "Content-Type: application/json" \
+          -d "{\"ids\":[\"${MSG_ID}\"],\"read\":true}" > /dev/null
+      else
+        echo "Failed to forward to agent (HTTP $HTTP_CODE)"
+      fi
+
+      echo "---"
+    done
+
+    echo "Done processing emails"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-email-poller
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: poller
+              image: alpine:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  apk add --no-cache curl jq && /scripts/poll-emails.sh
+              env:
+                - name: HOOKS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "kubeclaw.secretName" . }}
+                      key: HOOKS_TOKEN
+                      optional: true
+              volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+              resources:
+                requests:
+                  memory: "32Mi"
+                  cpu: "25m"
+                limits:
+                  memory: "128Mi"
+                  cpu: "200m"
+          volumes:
+            - name: scripts
+              configMap:
+                name: {{ include "kubeclaw.fullname" . }}-email-poller
+                defaultMode: 0755
+{{- end }}
