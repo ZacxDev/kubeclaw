@@ -94,6 +94,8 @@ channels:
     # -- Pre-approved Telegram user IDs (skips pairing flow)
     allowFrom: []
   whatsapp:
+    # -- Enable WhatsApp channel (creates persistent credential storage)
+    enabled: false
     # -- DM policy: "pairing" requires QR scan, "open" accepts all
     dmPolicy: "pairing"
     # -- Group chat policy
