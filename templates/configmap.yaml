@@ -46,11 +46,7 @@ data:
           "enabled": {{ .Values.channels.telegram.enabled }}
         },
         "whatsapp": {
-          "enabled": {{ .Values.channels.whatsapp.enabled }},
-          "dm": {
-            "policy": {{ .Values.channels.whatsapp.dmPolicy | quote }},
-            "allowFrom": {{ .Values.channels.whatsapp.allowFrom | toJson }}
-          },
+          "dmPolicy": {{ .Values.channels.whatsapp.dmPolicy | quote }},
           "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},
           "sendReadReceipts": {{ .Values.channels.whatsapp.sendReadReceipts }}
         }
