@@ -75,7 +75,7 @@ metadata:
   labels:
     {{- include "kubeclaw.labels" . | nindent 4 }}
 spec:
-  schedule: "*/2 * * * *"
+  schedule: "* * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
