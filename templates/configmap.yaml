@@ -104,8 +104,9 @@ data:
             "match": { "path": "email" },
             "action": "agent",
             "wakeMode": "now",
+            "sessionKey": "hook:email:{{`{{from}}`}}",
             "messageTemplate": "New email received:\nFrom: {{`{{from}}`}}\nSubject: {{`{{subject}}`}}\n\n{{`{{body}}`}}",
-            "deliver": false
+            "deliver": true
           }
           {{- end }}
         ]
