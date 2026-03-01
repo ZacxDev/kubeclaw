@@ -109,6 +109,9 @@ channels:
     address: ""
     # -- Mailpit API URL for the email poller CronJob
     mailpitUrl: ""
+    # -- Portal service URL for email ingest (routes emails through Clankup for thread tracking).
+    # When set, the poller sends emails to the portal instead of directly to the gateway.
+    portalUrl: ""
 
 # -- Tools configuration
 tools:

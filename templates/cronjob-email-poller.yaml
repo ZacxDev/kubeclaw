@@ -14,7 +14,11 @@ data:
 
     MAILPIT_URL="{{ .Values.channels.email.mailpitUrl }}"
     AGENT_EMAIL="{{ .Values.channels.email.address }}"
+    {{- if .Values.channels.email.portalUrl }}
+    AGENT_URL="{{ .Values.channels.email.portalUrl }}/api/internal/email-ingest"
+    {{- else }}
     AGENT_URL="http://{{ include "kubeclaw.fullname" . }}-devpod.{{ include "kubeclaw.namespace" . }}.svc.cluster.local:18789/hooks/email"
+    {{- end }}
 
     echo "Checking for new emails to ${AGENT_EMAIL}..."
 
