@@ -37,6 +37,18 @@ data:
       MSG=$(curl -sf "${MAILPIT_URL}/api/v1/message/${MSG_ID}")
 
       FROM=$(echo "$MSG" | jq -r '.From.Address // .From.Name // "unknown"')
+
+      # Skip bounce/DSN messages (MAILER-DAEMON, postmaster, empty sender)
+      case "$FROM" in
+        MAILER-DAEMON*|mailer-daemon*|postmaster*|""|unknown)
+          echo "Skipping bounce/DSN from: $FROM"
+          curl -sf -X PUT "${MAILPIT_URL}/api/v1/messages" \
+            -H "Content-Type: application/json" \
+            -d "{\"ids\":[\"${MSG_ID}\"],\"read\":true}" > /dev/null
+          continue
+          ;;
+      esac
+
       SUBJECT=$(echo "$MSG" | jq -r '.Subject // "No subject"')
       BODY=$(echo "$MSG" | jq -r '.Text // .HTML // "No body"' | head -c 2000)
       MESSAGE_ID=$(echo "$MSG" | jq -r '.MessageID // ""')
