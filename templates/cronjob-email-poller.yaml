@@ -80,12 +80,24 @@ data:
           echo "Fetching attachment: $FILENAME ($CONTENT_TYPE, $SIZE bytes)"
           ATT_DATA=$(curl -sf "${MAILPIT_URL}/api/v1/message/${MSG_ID}/part/${PART_ID}" | base64 -w0)
 
+          # Extract text from PDFs so the agent can read the content
+          EXTRACTED=""
+          if [ "$CONTENT_TYPE" = "application/pdf" ] && [ -n "$ATT_DATA" ]; then
+            echo "$ATT_DATA" | base64 -d > /tmp/att.pdf 2>/dev/null
+            EXTRACTED=$(pdftotext /tmp/att.pdf - 2>/dev/null || echo "")
+            rm -f /tmp/att.pdf
+            if [ -n "$EXTRACTED" ]; then
+              echo "Extracted $(echo "$EXTRACTED" | wc -c) bytes of text from PDF"
+            fi
+          fi
+
           if [ -n "$ATT_DATA" ]; then
             ATTACHMENTS=$(echo "$ATTACHMENTS" | jq \
               --arg fn "$FILENAME" \
               --arg ct "$CONTENT_TYPE" \
               --arg d "$ATT_DATA" \
-              '. + [{"filename": $fn, "content_type": $ct, "data": $d}]')
+              --arg et "$EXTRACTED" \
+              '. + [{"filename": $fn, "content_type": $ct, "data": $d, "extracted_text": $et}]')
           fi
         done
       fi
@@ -146,7 +158,7 @@ spec:
                 - /bin/sh
                 - -c
                 - |
-                  apk add --no-cache curl jq && /scripts/poll-emails.sh
+                  apk add --no-cache curl jq poppler-utils && /scripts/poll-emails.sh
               env:
                 - name: HOOKS_TOKEN
                   valueFrom:
