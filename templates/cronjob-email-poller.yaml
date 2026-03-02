@@ -39,6 +39,12 @@ data:
       FROM=$(echo "$MSG" | jq -r '.From.Address // .From.Name // "unknown"')
       SUBJECT=$(echo "$MSG" | jq -r '.Subject // "No subject"')
       BODY=$(echo "$MSG" | jq -r '.Text // .HTML // "No body"' | head -c 2000)
+      MESSAGE_ID=$(echo "$MSG" | jq -r '.MessageID // ""')
+
+      # Fetch RFC 2822 headers for threading (In-Reply-To, References)
+      HEADERS=$(curl -sf "${MAILPIT_URL}/api/v1/message/${MSG_ID}/headers" || echo "{}")
+      IN_REPLY_TO=$(echo "$HEADERS" | jq -r '.["In-Reply-To"]?[0] // ""')
+      REFERENCES=$(echo "$HEADERS" | jq -r '.References?[0] // ""')
 
       echo "From: $FROM"
       echo "Subject: $SUBJECT"
@@ -48,7 +54,10 @@ data:
         --arg from "$FROM" \
         --arg subject "$SUBJECT" \
         --arg body "$BODY" \
-        '{from: $from, subject: $subject, body: $body}')
+        --arg message_id "$MESSAGE_ID" \
+        --arg in_reply_to "$IN_REPLY_TO" \
+        --arg references "$REFERENCES" \
+        '{from: $from, subject: $subject, body: $body, message_id: $message_id, in_reply_to: $in_reply_to, references: $references}')
 
       HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
         -X POST "${AGENT_URL}" \
