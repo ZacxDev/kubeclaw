@@ -61,6 +61,35 @@ data:
       echo "From: $FROM"
       echo "Subject: $SUBJECT"
 
+      # Fetch attachments (base64-encoded, up to 10MB each)
+      ATTACHMENTS="[]"
+      ATT_COUNT=$(echo "$MSG" | jq -r '.Attachments | length')
+      if [ "$ATT_COUNT" -gt 0 ] 2>/dev/null; then
+        for i in $(seq 0 $((ATT_COUNT - 1))); do
+          PART_ID=$(echo "$MSG" | jq -r ".Attachments[$i].PartID")
+          FILENAME=$(echo "$MSG" | jq -r ".Attachments[$i].FileName")
+          CONTENT_TYPE=$(echo "$MSG" | jq -r ".Attachments[$i].ContentType")
+          SIZE=$(echo "$MSG" | jq -r ".Attachments[$i].Size")
+
+          # Skip attachments larger than 10MB
+          if [ "$SIZE" -gt 10485760 ] 2>/dev/null; then
+            echo "Skipping large attachment: $FILENAME ($SIZE bytes)"
+            continue
+          fi
+
+          echo "Fetching attachment: $FILENAME ($CONTENT_TYPE, $SIZE bytes)"
+          ATT_DATA=$(curl -sf "${MAILPIT_URL}/api/v1/message/${MSG_ID}/part/${PART_ID}" | base64 -w0)
+
+          if [ -n "$ATT_DATA" ]; then
+            ATTACHMENTS=$(echo "$ATTACHMENTS" | jq \
+              --arg fn "$FILENAME" \
+              --arg ct "$CONTENT_TYPE" \
+              --arg d "$ATT_DATA" \
+              '. + [{"filename": $fn, "content_type": $ct, "data": $d}]')
+          fi
+        done
+      fi
+
       # Send to agent hooks endpoint
       PAYLOAD=$(jq -n \
         --arg from "$FROM" \
@@ -69,7 +98,8 @@ data:
         --arg message_id "$MESSAGE_ID" \
         --arg in_reply_to "$IN_REPLY_TO" \
         --arg references "$REFERENCES" \
-        '{from: $from, subject: $subject, body: $body, message_id: $message_id, in_reply_to: $in_reply_to, references: $references}')
+        --argjson attachments "$ATTACHMENTS" \
+        '{from: $from, subject: $subject, body: $body, message_id: $message_id, in_reply_to: $in_reply_to, references: $references, attachments: $attachments}')
 
       HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
         -X POST "${AGENT_URL}" \
