@@ -46,8 +46,15 @@ agent:
   mentionPatterns: []
 
 # -- Skill files to mount. Map of filename to content.
+# Each skill should include YAML frontmatter (name, description, user-invocable).
+# At startup, each file is placed in /root/.openclaw/skills/{name}/SKILL.md.
 skills: {}
 # promptver-dev.md: |
+#   ---
+#   name: Promptver Dev
+#   description: Development with prompt versioning
+#   user-invocable: true
+#   ---
 #   # Promptver Dev Skill
 #   ...
 
