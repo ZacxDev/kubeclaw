@@ -83,6 +83,12 @@ spec:
                 done
               fi
 
+              # --- Persist ~/.openclaw on the PVC so sessions, cron state,
+              #     and credentials survive pod restarts ---
+              mkdir -p /data/openclaw
+              rm -rf /root/.openclaw
+              ln -s /data/openclaw /root/.openclaw
+
               # --- Skills ---
               mkdir -p /root/.openclaw/skills /root/.openclaw/cron
               if [ -d /config/skills ]; then
