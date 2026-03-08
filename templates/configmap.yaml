@@ -49,11 +49,13 @@ data:
           "dmPolicy": {{ .Values.channels.whatsapp.dmPolicy | quote }},
           "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},
           "sendReadReceipts": {{ .Values.channels.whatsapp.sendReadReceipts }}
-        },
+        }
+        {{- if .Values.channels.email.enabled }},
         "email": {
-          "enabled": {{ .Values.channels.email.enabled }},
+          "enabled": true,
           "dmPolicy": "open"
         }
+        {{- end }}
       },
       "tools": {
         "web": {
