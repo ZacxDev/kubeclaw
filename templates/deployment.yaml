@@ -18,6 +18,9 @@ spec:
         {{- include "kubeclaw.selectorLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.channels.email.enabled }}
+        checksum/email-plugin: {{ include (print $.Template.BasePath "/configmap-email-plugin.yaml") . | sha256sum }}
+        {{- end }}
         {{- if .Values.skills }}
         checksum/skills: {{ include (print $.Template.BasePath "/configmap-skills.yaml") . | sha256sum }}
         {{- end }}
@@ -88,6 +91,18 @@ spec:
               mkdir -p /data/openclaw
               rm -rf /root/.openclaw
               ln -s /data/openclaw /root/.openclaw
+
+              # --- Email plugin ---
+              {{- if .Values.channels.email.enabled }}
+              if [ -d /config/email-plugin ]; then
+                PLUGIN_DIR="/usr/local/lib/node_modules/openclaw/extensions/email"
+                mkdir -p "$PLUGIN_DIR"
+                cp /config/email-plugin/index.js "$PLUGIN_DIR/"
+                cp /config/email-plugin/package.json "$PLUGIN_DIR/"
+                cp /config/email-plugin/openclaw.plugin.json "$PLUGIN_DIR/"
+                echo "Email plugin installed"
+              fi
+              {{- end }}
 
               # --- Skills ---
               mkdir -p /root/.openclaw/skills /root/.openclaw/cron
@@ -259,6 +274,10 @@ spec:
             - name: GATEWAY_URL
               value: {{ .Values.gateway.callbackUrl | quote }}
             {{- end }}
+            {{- if .Values.channels.email.portalUrl }}
+            - name: PORTAL_URL
+              value: {{ .Values.channels.email.portalUrl | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -279,6 +298,11 @@ spec:
             - name: git-ssh
               mountPath: /etc/git-secret
               readOnly: true
+            {{- if .Values.channels.email.enabled }}
+            - name: email-plugin
+              mountPath: /config/email-plugin
+              readOnly: true
+            {{- end }}
             {{- if .Values.skills }}
             - name: skills
               mountPath: /config/skills
@@ -343,6 +367,11 @@ spec:
               - key: git-ssh-key
                 path: ssh
             optional: true
+        {{- if .Values.channels.email.enabled }}
+        - name: email-plugin
+          configMap:
+            name: {{ include "kubeclaw.fullname" . }}-email-plugin
+        {{- end }}
         {{- if .Values.skills }}
         - name: skills
           configMap:

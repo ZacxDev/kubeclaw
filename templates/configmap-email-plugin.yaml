@@ -1,0 +1,118 @@
+{{- if .Values.channels.email.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-email-plugin
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+data:
+  index.js: |
+    const plugin = {
+      id: "email",
+      name: "Email",
+      description: "Send emails via portal API",
+      configSchema: { type: "object", properties: {}, additionalProperties: false },
+      register(api) {
+        api.registerChannel({
+          plugin: {
+            id: "email",
+            meta: {
+              id: "email",
+              label: "Email",
+              selectionLabel: "Email",
+              docsPath: "/docs/email",
+              blurb: "Send emails via portal SMTP relay",
+              order: 5,
+            },
+            capabilities: {
+              chatTypes: ["direct"],
+              blockStreaming: true,
+              media: false,
+            },
+            config: {
+              listAccountIds: () => ["default"],
+              resolveAccount: () => ({
+                accountId: "default",
+                name: "Portal Email",
+                enabled: true,
+                configured: Boolean(process.env.HOOKS_TOKEN),
+              }),
+              defaultAccountId: () => "default",
+              isConfigured: (acct) => acct.configured,
+              describeAccount: (acct) => ({
+                accountId: acct.accountId,
+                name: acct.name,
+                enabled: acct.enabled,
+                configured: acct.configured,
+              }),
+            },
+            agentTools: [
+              {
+                tool: {
+                  name: "send_email",
+                  description: "Send an email to a recipient",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      to: { type: "string", description: "Recipient email address" },
+                      subject: { type: "string", description: "Email subject line" },
+                      body: { type: "string", description: "Email body text" },
+                    },
+                    required: ["to", "subject", "body"],
+                  },
+                },
+                execute: async (input) => {
+                  const portalUrl = process.env.PORTAL_URL;
+                  const token = process.env.HOOKS_TOKEN;
+                  if (!portalUrl || !token) {
+                    return { error: "Email not configured: missing PORTAL_URL or HOOKS_TOKEN" };
+                  }
+                  const res = await fetch(`${portalUrl}/api/internal/channels/send`, {
+                    method: "POST",
+                    headers: {
+                      "Authorization": `Bearer ${token}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      channel: "email",
+                      to: input.to,
+                      subject: input.subject,
+                      body: input.body,
+                    }),
+                  });
+                  if (!res.ok) {
+                    return { error: `Email send failed (${res.status}): ${await res.text()}` };
+                  }
+                  const data = await res.json();
+                  return { success: true, from: data.from, to: input.to, subject: input.subject };
+                },
+              },
+            ],
+          },
+        });
+      },
+    };
+
+    export default plugin;
+  package.json: |
+    {
+      "name": "@openclaw/email",
+      "version": "1.0.0",
+      "type": "module",
+      "private": true,
+      "openclaw": {
+        "extensions": ["./index.js"]
+      }
+    }
+  openclaw.plugin.json: |
+    {
+      "id": "email",
+      "channels": ["email"],
+      "configSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      }
+    }
+{{- end }}

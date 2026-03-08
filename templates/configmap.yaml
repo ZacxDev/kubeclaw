@@ -49,6 +49,10 @@ data:
           "dmPolicy": {{ .Values.channels.whatsapp.dmPolicy | quote }},
           "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},
           "sendReadReceipts": {{ .Values.channels.whatsapp.sendReadReceipts }}
+        },
+        "email": {
+          "enabled": {{ .Values.channels.email.enabled }},
+          "dmPolicy": "open"
         }
       },
       "tools": {
