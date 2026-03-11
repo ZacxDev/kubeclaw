@@ -233,7 +233,7 @@ rawConfig: {}
 # -- Persistence configuration
 persistence:
   # -- Enable persistence
-  enabled: true
+  enabled: false
   # -- Use an existing PVC
   existingClaim: ""
   # -- Storage class (empty = cluster default)
