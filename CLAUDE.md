@@ -8,7 +8,7 @@ Helm chart for deploying OpenClaw AI agent devpods on Kubernetes.
 kubeclaw/
 ├── Chart.yaml              # Chart metadata (v0.2.22)
 ├── values.yaml             # All configurable values with defaults
-├── templates/              # Helm templates (23 files)
+├── templates/              # Helm templates (24 files)
 │   ├── _helpers.tpl        # Template helper functions (naming, labels, defaults)
 │   ├── deployment.yaml     # Agent pod (startup script, volumes, probes)
 │   ├── configmap.yaml      # Generated openclaw.json + repos.json
@@ -19,6 +19,7 @@ kubeclaw/
 │   ├── configmap-workspace-content.yaml  # Workspace inline content files
 │   ├── configmap-workflow-skills.yaml    # Inline step skills per workflow
 │   ├── cronjob-workflow.yaml        # CronJob per workflow definition
+│   ├── cronjob-snapshot.yaml         # CronJob for scheduled workspace snapshots
 │   ├── cronjob-email-poller.yaml    # CronJob for polling email via Mailpit
 │   ├── clusterrole-orchestrator.yaml    # Scoped cross-namespace RBAC
 │   ├── service.yaml        # ClusterIP on port 18789
@@ -32,7 +33,7 @@ kubeclaw/
 │   ├── role-workflow.yaml           # Workflow exec permission Role
 │   ├── rolebinding-workflow.yaml    # Workflow RoleBinding
 │   └── NOTES.txt            # Post-install output
-├── tests/                   # 132 helm-unittest tests (15 files)
+├── tests/                   # 141 helm-unittest tests (16 files)
 ├── examples/                # Complete deployment examples
 │   ├── standard.yaml        # Minimal agent
 │   ├── coordinator.yaml     # Multi-agent coordinator
@@ -66,10 +67,11 @@ Optional resources:
 - **ClusterRole + ClusterRoleBinding** for orchestrator (when `rbac.orchestrator.enabled: true` and `clusterAdmin` is disabled)
 - **CronJob** per workflow (when `workflows` is defined)
 - **CronJob** for email polling (when `channels.email` is configured)
+- **CronJob** for workspace snapshots (when `snapshots.enabled: true`)
 - **ConfigMap** per workflow with inline step skills
 - **ConfigMap** for email plugin (when `channels.email` is configured)
 - **ConfigMap** for workspace files/content (when `workspaceFiles` or `workspaceContent` is defined)
-- **ServiceAccount** + **Role** + **RoleBinding** shared across all workflows
+- **ServiceAccount** + **Role** + **RoleBinding** shared across workflows and snapshots
 
 ### Startup Script (deployment.yaml)
 
@@ -77,12 +79,19 @@ The deployment runs a shell script that executes in order:
 
 1. **SSH setup** — copies `git-ssh-key` from secret to `/root/.ssh/id_rsa`
 2. **Repo clone/pull** — iterates `repos.json`, clones new repos or pulls existing
-3. **Skills** — copies `/config/skills/*.md` to `/root/.openclaw/skills/`
-4. **OAuth credentials** — copies `claude-credentials.json` from secret to PVC (first boot only), symlinks `/root/.claude` to `/data/.claude`
-5. **Infrastructure tools** (conditional) — downloads kubectl, flux, sops, age; sets up in-cluster kubeconfig; mounts remote kubeconfigs
-6. **Secret injection** — uses `jq` to merge `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN` into `openclaw.json` at runtime
-7. **Channel init** — runs `openclaw doctor --fix`
-8. **Gateway loop** — starts `openclaw gateway --bind lan` with restart-on-failure
+3. **Persist ~/.openclaw** — symlinks to `/data/openclaw` so sessions/cron state survive restarts
+4. **Email plugin** (conditional) — installs email channel extension
+5. **Skills** — copies `/config/skills/*.md` to `/root/.openclaw/skills/`
+6. **Workspace files** — downloads URL-based files and copies inline content to workspace
+7. **OAuth credentials** — copies `claude-credentials.json` from secret to PVC (first boot only), symlinks `/root/.claude` to `/data/.claude`
+8. **Infrastructure tools** (conditional) — downloads kubectl, flux, sops, age; sets up in-cluster kubeconfig; mounts remote kubeconfigs
+9. **Snapshot tools** (conditional) — downloads rclone, generates config, writes save script, restores from latest snapshot
+10. **Secret injection** — uses `jq` to merge `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN` into `openclaw.json` at runtime
+11. **Auth bootstrap** — creates agent auth-profiles from Claude credentials
+12. **Channel init** — runs `openclaw doctor --fix`
+13. **Gateway loop** — starts `openclaw gateway --bind lan` with restart-on-failure
+
+When `snapshots.save.onShutdown` is enabled, a **preStop lifecycle hook** calls `/usr/local/bin/snapshot-save` and `terminationGracePeriodSeconds` is extended (default 300s) to allow the snapshot to complete.
 
 ### Config Generation (configmap.yaml)
 
@@ -152,6 +161,9 @@ agent:
 
 `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN`, `GITHUB_TOKEN`, `BRAVE_API_KEY`, `ANTHROPIC_API_KEY`, `git-ssh-key`, `claude-credentials.json`
 
+Snapshot credentials (in `snapshots.credentials.existingSecret` or main secret):
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SNAPSHOT_ENCRYPTION_PASSWORD`
+
 ### Agent Variants
 
 - **Standard**: Default. Git repos, skills, Matrix/Telegram.
@@ -193,11 +205,50 @@ workflows:
         notify: false          # send output to Telegram
 ```
 
+### Snapshot Schema
+
+```yaml
+snapshots:
+  enabled: false
+  provider: s3                 # s3, minio, or r2
+  bucket: ""                   # required
+  prefix: ""                   # defaults to agentName
+  endpoint: ""                 # required for minio/r2
+  region: "us-east-1"
+  paths:                       # directories to snapshot
+    - /data/workspace
+  exclude:                     # rclone glob patterns (--exclude)
+    - ".git/objects/**"
+    - "node_modules/**"
+  excludeFrom: ""              # path to exclude file (--exclude-from)
+  save:
+    schedule: "0 */6 * * *"    # CronJob schedule
+    onShutdown: true           # preStop hook snapshot
+    terminationGracePeriodSeconds: 300
+  restore:
+    onStartup: true            # restore if not previously restored
+  retention:
+    maxCount: 5                # keep N newest, delete oldest on success
+  encryption:
+    enabled: false             # rclone crypt layer
+  bandwidth:
+    limit: "0"                 # rclone bwlimit for scheduled saves
+  credentials:
+    existingSecret: ""         # Secret with AWS_ACCESS_KEY_ID, etc.
+    useIRSA: false             # use pod SA IAM role instead
+```
+
+S3 key structure: `s3://bucket/{prefix}/{timestamp}/{dirname}/...`
+
+Scheduled saves run with `ionice -c3 nice -n 19` for low-priority I/O. Restore and shutdown saves run at full speed. Retention cleanup runs after each successful save, deleting the oldest snapshots beyond `maxCount`.
+
+**Ignore patterns**: Place a `.snapshotignore` file in the snapshot path root (e.g., `/data/workspace/.snapshotignore`) with rclone exclude patterns (one per line). Automatically picked up during saves. Alternatively, set `excludeFrom` to a custom file path. The `exclude` list in values provides Helm-level defaults.
+
 ## Development
 
 ```bash
 make lint          # helm lint
-make test          # 132 helm-unittest tests
+make test          # 141 helm-unittest tests
 make template      # render standard example
 make template-all  # render all examples
 ```
@@ -209,7 +260,7 @@ Tests are in `tests/` using helm-unittest. Install with:
 helm plugin install https://github.com/helm-unittest/helm-unittest.git
 ```
 
-Test files cover: deployment (21), orchestrator-rbac (15), rbac (12), configmap (8), workflow cronjobs (18), workflow configmaps (8), workflow rbac (8), pvc (5), workspace-content (5), workspace (5), skills (4), namespace (3), service (3), extra configmaps (3), notes (3).
+Test files cover: deployment (21), snapshot (20), orchestrator-rbac (15), rbac (12), configmap (8), workflow cronjobs (18), workflow configmaps (8), workflow rbac (8), pvc (5), workspace-content (5), workspace (5), skills (4), namespace (3), service (3), extra configmaps (3), notes (3).
 
 ### Template Debugging
 

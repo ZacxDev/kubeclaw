@@ -106,6 +106,32 @@ extraEnv:
   - name: CUSTOM_VAR
     value: "custom-value"
 
+snapshots:
+  enabled: true
+  provider: minio
+  bucket: workspace-snapshots
+  endpoint: "http://minio.minio-tenant.svc.cluster.local"
+  region: "us-east-1"
+  paths:
+    - /data/workspace
+  exclude:
+    - ".git/objects/**"
+    - "node_modules/**"
+  save:
+    schedule: "0 */6 * * *"
+    onShutdown: true
+    terminationGracePeriodSeconds: 300
+  restore:
+    onStartup: true
+  retention:
+    maxCount: 5
+  encryption:
+    enabled: true
+  bandwidth:
+    limit: "10M"
+  credentials:
+    existingSecret: snapshot-creds
+
 persistence:
   enabled: true
   storageClass: "fast-ssd"

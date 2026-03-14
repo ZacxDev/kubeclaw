@@ -1,0 +1,292 @@
+suite: snapshot
+templates:
+  - templates/cronjob-snapshot.yaml
+  - templates/deployment.yaml
+  - templates/configmap.yaml
+  - templates/configmap-skills.yaml
+  - templates/configmap-workspace.yaml
+  - templates/configmap-workspace-content.yaml
+  - templates/configmap-email-plugin.yaml
+  - templates/serviceaccount-workflow.yaml
+  - templates/role-workflow.yaml
+  - templates/rolebinding-workflow.yaml
+tests:
+  - it: should not create snapshot CronJob when disabled
+    template: templates/cronjob-snapshot.yaml
+    set:
+      agentName: testbot
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create snapshot CronJob when enabled
+    template: templates/cronjob-snapshot.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        save:
+          schedule: "0 */6 * * *"
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: testbot-snapshot
+      - equal:
+          path: metadata.namespace
+          value: devpod-testbot
+      - equal:
+          path: spec.schedule
+          value: "0 */6 * * *"
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+
+  - it: should use custom schedule
+    template: templates/cronjob-snapshot.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        save:
+          schedule: "0 0 * * *"
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "0 0 * * *"
+
+  - it: should use workflow service account
+    template: templates/cronjob-snapshot.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.serviceAccountName
+          value: testbot-workflow
+
+  - it: should use kubectl image for CronJob
+    template: templates/cronjob-snapshot.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+      workflowImage:
+        repository: bitnami/kubectl
+        tag: "1.28"
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].image
+          value: "bitnami/kubectl:1.28"
+
+  - it: should pass bandwidth limit as env var
+    template: templates/cronjob-snapshot.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        bandwidth:
+          limit: "10M"
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content:
+            name: BWLIMIT
+            value: "10M"
+
+  - it: should include rclone install when snapshots enabled
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "Installing rclone"
+
+  - it: should include snapshot restore when enabled
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        restore:
+          onStartup: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "Snapshot restore"
+
+  - it: should set terminationGracePeriodSeconds when onShutdown enabled
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        save:
+          onShutdown: true
+          terminationGracePeriodSeconds: 600
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 600
+
+  - it: should not set terminationGracePeriodSeconds when onShutdown disabled
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        save:
+          onShutdown: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.terminationGracePeriodSeconds
+
+  - it: should add preStop lifecycle hook when onShutdown enabled
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        save:
+          onShutdown: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.exec.command[2]
+          value: /usr/local/bin/snapshot-save
+
+  - it: should not add preStop when onShutdown disabled
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        save:
+          onShutdown: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].lifecycle
+
+  - it: should add snapshot credentials envFrom when existingSecret set
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        credentials:
+          existingSecret: s3-creds
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].envFrom
+          content:
+            secretRef:
+              name: s3-creds
+              optional: true
+
+  - it: should configure encryption in startup script
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        encryption:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "\\[encrypted\\]"
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "rclone obscure"
+
+  - it: should configure minio provider
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        provider: minio
+        endpoint: "http://minio:9000"
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "provider = Minio"
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "endpoint = http://minio:9000"
+
+  - it: should use .snapshotignore by default
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "\\.snapshotignore"
+
+  - it: should use custom excludeFrom path when set
+    template: templates/deployment.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+        bucket: my-bucket
+        excludeFrom: "/data/workspace/.rclone-ignore"
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "exclude-from=/data/workspace/\\.rclone-ignore"
+
+  - it: should create workflow SA when only snapshots enabled
+    template: templates/serviceaccount-workflow.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: testbot-workflow
+
+  - it: should create workflow role when only snapshots enabled
+    template: templates/role-workflow.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should create workflow rolebinding when only snapshots enabled
+    template: templates/rolebinding-workflow.yaml
+    set:
+      agentName: testbot
+      snapshots:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1

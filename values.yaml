@@ -311,6 +311,64 @@ workflows: {}
 #       timeout: 300
 #       notify: false
 
+# -- Snapshot configuration for workspace backup/restore via S3-compatible storage.
+# Requires rclone (downloaded automatically at startup when enabled).
+snapshots:
+  # -- Enable workspace snapshots
+  enabled: false
+  # -- Storage provider: s3, minio, or r2
+  provider: s3
+  # -- S3 bucket name
+  bucket: ""
+  # -- Key prefix in bucket. Defaults to agentName.
+  prefix: ""
+  # -- Custom endpoint URL (required for minio/r2)
+  endpoint: ""
+  # -- S3 region
+  region: "us-east-1"
+  # -- Paths to include in snapshots
+  paths:
+    - /data/workspace
+  # -- Glob patterns to exclude from snapshots (rclone --exclude format)
+  exclude:
+    - ".git/objects/**"
+    - "node_modules/**"
+    - "__pycache__/**"
+    - ".venv/**"
+    - ".terraform/**"
+  # -- Path to an exclude-from file on the agent pod (rclone --exclude-from format).
+  # If empty, .snapshotignore in each snapshot path root is used automatically when present.
+  excludeFrom: ""
+  save:
+    # -- Cron schedule for automatic snapshots
+    schedule: "0 */6 * * *"
+    # -- Save a snapshot on pod shutdown (preStop hook)
+    onShutdown: true
+    # -- Termination grace period in seconds (must exceed expected snapshot duration)
+    terminationGracePeriodSeconds: 300
+  restore:
+    # -- Restore from latest snapshot on startup if workspace is empty
+    onStartup: true
+  retention:
+    # -- Maximum number of snapshots to keep (oldest deleted after successful new save)
+    maxCount: 5
+  encryption:
+    # -- Enable client-side encryption (rclone crypt).
+    # Requires SNAPSHOT_ENCRYPTION_PASSWORD in the credentials secret.
+    enabled: false
+  bandwidth:
+    # -- Bandwidth limit for scheduled saves (rclone format, e.g. "10M"). 0 = unlimited.
+    # Restore and shutdown saves always run at full speed.
+    limit: "0"
+  credentials:
+    # -- Name of existing Secret containing S3 credentials.
+    # Expected keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+    # and optionally SNAPSHOT_ENCRYPTION_PASSWORD (if encryption enabled).
+    # If empty, credentials are expected in the main agent secret.
+    existingSecret: ""
+    # -- Use IAM Roles for Service Accounts (no credential secret needed).
+    useIRSA: false
+
 # -- Pod-level settings
 nodeSelector: {}
 tolerations: []

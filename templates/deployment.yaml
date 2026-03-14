@@ -38,6 +38,9 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if and .Values.snapshots.enabled .Values.snapshots.save.onShutdown }}
+      terminationGracePeriodSeconds: {{ .Values.snapshots.save.terminationGracePeriodSeconds | default 300 }}
+      {{- end }}
       hostname: {{ .Values.agentName | default (include "kubeclaw.fullname" .) | trunc 52 }}
       containers:
         - name: agent
@@ -193,6 +196,123 @@ spec:
               sops --version 2>/dev/null || true
               {{- end }}
 
+              {{- if .Values.snapshots.enabled }}
+              # --- Snapshot tools (rclone) ---
+              echo "Installing rclone..."
+              curl -fsSL "https://downloads.rclone.org/rclone-current-linux-$(dpkg --print-architecture).deb" -o /tmp/rclone.deb
+              dpkg -i /tmp/rclone.deb
+              rm -f /tmp/rclone.deb
+
+              {{- $providers := dict "s3" "AWS" "minio" "Minio" "r2" "Cloudflare" }}
+              {{- $rcloneProvider := index $providers (.Values.snapshots.provider | default "s3") | default "AWS" }}
+              {{- $snapshotPrefix := .Values.snapshots.prefix | default .Values.agentName }}
+              {{- $snapshotBucket := .Values.snapshots.bucket }}
+              {{- $snapshotRemote := printf "snapshot:%s/%s" $snapshotBucket $snapshotPrefix }}
+              {{- if .Values.snapshots.encryption.enabled }}
+              {{- $snapshotRemote = "encrypted:" }}
+              {{- end }}
+
+              # Generate rclone config
+              mkdir -p /root/.config/rclone
+              cat > /root/.config/rclone/rclone.conf << 'RCLONECONF'
+              [snapshot]
+              type = s3
+              provider = {{ $rcloneProvider }}
+              {{- if .Values.snapshots.endpoint }}
+              endpoint = {{ .Values.snapshots.endpoint }}
+              {{- end }}
+              region = {{ .Values.snapshots.region | default "us-east-1" }}
+              env_auth = true
+              {{- if .Values.snapshots.encryption.enabled }}
+
+              [encrypted]
+              type = crypt
+              remote = snapshot:{{ $snapshotBucket }}/{{ $snapshotPrefix }}
+              password = ENCRYPTION_PASSWORD_PLACEHOLDER
+              {{- end }}
+              RCLONECONF
+
+              {{- if .Values.snapshots.encryption.enabled }}
+              OBSCURED_PASS=$(rclone obscure "$SNAPSHOT_ENCRYPTION_PASSWORD")
+              sed -i "s|ENCRYPTION_PASSWORD_PLACEHOLDER|${OBSCURED_PASS}|" /root/.config/rclone/rclone.conf
+              {{- end }}
+
+              # Generate snapshot-save script
+              cat > /usr/local/bin/snapshot-save << 'SAVESCRIPT'
+              #!/bin/sh
+              set -e
+              BWLIMIT="${1:-0}"
+              TIMESTAMP=$(date +%Y%m%dT%H%M%S)
+              REMOTE="{{ $snapshotRemote }}"
+              echo "[$(date -Iseconds)] Starting snapshot: $TIMESTAMP"
+              {{- range .Values.snapshots.paths }}
+              if [ -d "{{ . }}" ]; then
+                echo "Syncing {{ . }}..."
+                EXCLUDE_FROM_ARGS=""
+                {{- if $.Values.snapshots.excludeFrom }}
+                if [ -f "{{ $.Values.snapshots.excludeFrom }}" ]; then
+                  EXCLUDE_FROM_ARGS="--exclude-from={{ $.Values.snapshots.excludeFrom }}"
+                fi
+                {{- else }}
+                if [ -f "{{ . }}/.snapshotignore" ]; then
+                  EXCLUDE_FROM_ARGS="--exclude-from={{ . }}/.snapshotignore"
+                fi
+                {{- end }}
+                rclone sync "{{ . }}/" "${REMOTE}/${TIMESTAMP}/{{ base . }}/" \
+                  {{- range $.Values.snapshots.exclude }}
+                  --exclude="{{ . }}" \
+                  {{- end }}
+                  $EXCLUDE_FROM_ARGS \
+                  --bwlimit="$BWLIMIT" --transfers=4 --checkers=4 --s3-no-check-bucket
+              fi
+              {{- end }}
+              MAX_COUNT={{ .Values.snapshots.retention.maxCount | default 5 }}
+              SNAPSHOTS=$(rclone lsjson "${REMOTE}/" --dirs-only 2>/dev/null | jq -r 'sort_by(.Name) | .[].Name' || true)
+              COUNT=$(echo "$SNAPSHOTS" | grep -c . 2>/dev/null || echo "0")
+              if [ "$COUNT" -gt "$MAX_COUNT" ]; then
+                DELETE_COUNT=$((COUNT - MAX_COUNT))
+                echo "[$(date -Iseconds)] Removing $DELETE_COUNT old snapshot(s)..."
+                echo "$SNAPSHOTS" | head -n "$DELETE_COUNT" | while read -r snap; do
+                  [ -n "$snap" ] && rclone purge "${REMOTE}/${snap}/" --s3-no-check-bucket && echo "Deleted: $snap"
+                done
+              fi
+              echo "[$(date -Iseconds)] Snapshot complete: $TIMESTAMP"
+              SAVESCRIPT
+              chmod +x /usr/local/bin/snapshot-save
+
+              {{- if .Values.snapshots.restore.onStartup }}
+              # --- Snapshot restore ---
+              SNAP_MARKER="/data/.snapshot-restored"
+              if [ ! -f "$SNAP_MARKER" ]; then
+                LATEST=$(rclone lsjson "{{ $snapshotRemote }}/" --dirs-only 2>/dev/null | jq -r 'sort_by(.Name) | last | .Name // empty' || true)
+                if [ -n "$LATEST" ]; then
+                  echo "[$(date -Iseconds)] Restoring workspace from snapshot: $LATEST"
+                  {{- range .Values.snapshots.paths }}
+                  mkdir -p "{{ . }}"
+                  EXCLUDE_FROM_ARGS=""
+                  {{- if $.Values.snapshots.excludeFrom }}
+                  if [ -f "{{ $.Values.snapshots.excludeFrom }}" ]; then
+                    EXCLUDE_FROM_ARGS="--exclude-from={{ $.Values.snapshots.excludeFrom }}"
+                  fi
+                  {{- end }}
+                  rclone sync "{{ $snapshotRemote }}/${LATEST}/{{ base . }}/" "{{ . }}/" \
+                    {{- range $.Values.snapshots.exclude }}
+                    --exclude="{{ . }}" \
+                    {{- end }}
+                    $EXCLUDE_FROM_ARGS \
+                    --transfers=4 --checkers=4 --s3-no-check-bucket
+                  {{- end }}
+                  echo "$LATEST" > "$SNAP_MARKER"
+                  echo "[$(date -Iseconds)] Snapshot restored: $LATEST"
+                else
+                  echo "[$(date -Iseconds)] No snapshots found, starting fresh"
+                fi
+              else
+                echo "[$(date -Iseconds)] Snapshot already restored ($(cat $SNAP_MARKER)), skipping"
+              fi
+              {{- end }}
+              {{- end }}
+
               # --- Persist WhatsApp Baileys credentials across restarts ---
               {{- if .Values.channels.whatsapp.enabled }}
               mkdir -p /data/whatsapp-creds /root/.openclaw/credentials
@@ -285,6 +405,11 @@ spec:
             - secretRef:
                 name: {{ include "kubeclaw.secretName" . }}
                 optional: true
+            {{- if and .Values.snapshots.enabled .Values.snapshots.credentials.existingSecret }}
+            - secretRef:
+                name: {{ .Values.snapshots.credentials.existingSecret }}
+                optional: true
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
@@ -331,6 +456,15 @@ spec:
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          {{- if and .Values.snapshots.enabled .Values.snapshots.save.onShutdown }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - /usr/local/bin/snapshot-save
+          {{- end }}
           startupProbe:
             httpGet:
               path: /

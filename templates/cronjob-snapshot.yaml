@@ -1,0 +1,62 @@
+{{- if .Values.snapshots.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-snapshot
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.workflowLabels" . | nindent 4 }}
+    kubeclaw.dev/component: snapshot
+spec:
+  schedule: {{ .Values.snapshots.save.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            {{- include "kubeclaw.workflowLabels" . | nindent 12 }}
+            kubeclaw.dev/component: snapshot
+        spec:
+          serviceAccountName: {{ include "kubeclaw.workflowSaName" . }}
+          restartPolicy: Never
+          containers:
+            - name: snapshot
+              image: "{{ .Values.workflowImage.repository }}:{{ .Values.workflowImage.tag }}"
+              resources:
+                requests:
+                  memory: "32Mi"
+                  cpu: "25m"
+                limits:
+                  memory: "64Mi"
+                  cpu: "100m"
+              env:
+                - name: NS
+                  value: {{ include "kubeclaw.namespace" . | quote }}
+                - name: AGENT_LABEL
+                  value: {{ include "kubeclaw.fullname" . | quote }}
+                - name: BWLIMIT
+                  value: {{ .Values.snapshots.bandwidth.limit | default "0" | quote }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  echo "[$(date -Iseconds)] Starting scheduled snapshot..."
+
+                  POD=$(kubectl get pods -n "$NS" -l app.kubernetes.io/instance="$AGENT_LABEL" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+                  if [ -z "$POD" ]; then
+                    echo "ERROR: agent pod not found (label: app.kubernetes.io/instance=$AGENT_LABEL)"
+                    exit 1
+                  fi
+                  echo "[$(date -Iseconds)] Found pod: $POD"
+
+                  kubectl exec -n "$NS" "$POD" -c agent -- \
+                    ionice -c3 nice -n 19 /usr/local/bin/snapshot-save "$BWLIMIT"
+
+                  echo "[$(date -Iseconds)] Scheduled snapshot complete"
+{{- end }}
