@@ -6,16 +6,21 @@ Helm chart for deploying OpenClaw AI agent devpods on Kubernetes.
 
 ```
 kubeclaw/
-├── Chart.yaml              # Chart metadata (v0.2.0)
+├── Chart.yaml              # Chart metadata (v0.2.22)
 ├── values.yaml             # All configurable values with defaults
-├── templates/              # Helm templates
+├── templates/              # Helm templates (23 files)
 │   ├── _helpers.tpl        # Template helper functions (naming, labels, defaults)
 │   ├── deployment.yaml     # Agent pod (startup script, volumes, probes)
 │   ├── configmap.yaml      # Generated openclaw.json + repos.json
 │   ├── configmap-skills.yaml        # Skill markdown files
 │   ├── configmap-extra.yaml         # Extra ConfigMaps (e.g. agent registry)
-│   ├── configmap-workflow-skills.yaml  # Inline step skills per workflow
+│   ├── configmap-email-plugin.yaml  # Email channel plugin configuration
+│   ├── configmap-workspace.yaml     # Workspace files URLs/metadata
+│   ├── configmap-workspace-content.yaml  # Workspace inline content files
+│   ├── configmap-workflow-skills.yaml    # Inline step skills per workflow
 │   ├── cronjob-workflow.yaml        # CronJob per workflow definition
+│   ├── cronjob-email-poller.yaml    # CronJob for polling email via Mailpit
+│   ├── clusterrole-orchestrator.yaml    # Scoped cross-namespace RBAC
 │   ├── service.yaml        # ClusterIP on port 18789
 │   ├── pvc.yaml            # PersistentVolumeClaim
 │   ├── namespace.yaml      # Namespace (devpod-{name})
@@ -27,7 +32,7 @@ kubeclaw/
 │   ├── role-workflow.yaml           # Workflow exec permission Role
 │   ├── rolebinding-workflow.yaml    # Workflow RoleBinding
 │   └── NOTES.txt            # Post-install output
-├── tests/                   # 90 helm-unittest tests (12 files)
+├── tests/                   # 132 helm-unittest tests (15 files)
 ├── examples/                # Complete deployment examples
 │   ├── standard.yaml        # Minimal agent
 │   ├── coordinator.yaml     # Multi-agent coordinator
@@ -40,7 +45,7 @@ kubeclaw/
 │   ├── test-values.yaml
 │   └── full-values.yaml
 ├── Makefile                 # lint, test, template, template-all, clean
-└── .helmignore              # Excludes .claude/, examples/, docs/ from chart packaging
+└── .helmignore              # Excludes .claude/, examples/, docs/, images from chart packaging
 ```
 
 ## How the Chart Works
@@ -51,7 +56,7 @@ Every agent deployment creates:
 - **Namespace** `devpod-{agentName}`
 - **Deployment** `{agentName}-devpod` with inline startup script
 - **Service** `{agentName}-devpod` (ClusterIP, port 18789)
-- **PVC** `{agentName}-data` (10Gi default)
+- **PVC** `{agentName}-data` (10Gi default, persistence disabled by default)
 - **ConfigMap** `{agentName}-config` — templated `openclaw.json` + `repos.json`
 - **ConfigMap** `{agentName}-skills` — skill `.md` files (if `skills` is defined)
 - **ServiceAccount** + **Role** + **RoleBinding** — namespace reader
@@ -60,7 +65,10 @@ Optional resources:
 - **ClusterRoleBinding** to cluster-admin (when `rbac.clusterAdmin.enabled: true`)
 - **ClusterRole + ClusterRoleBinding** for orchestrator (when `rbac.orchestrator.enabled: true` and `clusterAdmin` is disabled)
 - **CronJob** per workflow (when `workflows` is defined)
+- **CronJob** for email polling (when `channels.email` is configured)
 - **ConfigMap** per workflow with inline step skills
+- **ConfigMap** for email plugin (when `channels.email` is configured)
+- **ConfigMap** for workspace files/content (when `workspaceFiles` or `workspaceContent` is defined)
 - **ServiceAccount** + **Role** + **RoleBinding** shared across all workflows
 
 ### Startup Script (deployment.yaml)
@@ -107,7 +115,8 @@ Each workflow creates a CronJob that:
 | `kubeclaw.workflowSaName` | `{agentName}-workflow` |
 | `kubeclaw.workflowAgentId` | Workflow `agent` override or chart default |
 | `kubeclaw.labels` | Standard Helm labels |
-| `kubeclaw.selectorLabels` | `app.kubernetes.io/name: devpod`, `instance: {name}` |
+| `kubeclaw.chart` | `{chartName}-{chartVersion}` for labels |
+| `kubeclaw.selectorLabels` | `app.kubernetes.io/name: devpod`, `instance: {name}`, `component` |
 | `kubeclaw.workflowLabels` | Labels with `component: workflow` |
 
 ## Key Values
@@ -127,7 +136,13 @@ git:
 channels:
   matrix:
     homeserver: "https://matrix.example.com"
+  email:                                   # email channel (Mailpit-based)
+    address: ""
+    mailpitUrl: ""
+    portalUrl: ""
 skills: {}                                 # filename.md: content
+workspaceFiles: []                         # [{path, url}] downloaded at startup
+workspaceContent: {}                       # path: inline content
 agent:
   model:
     primary: "anthropic/claude-sonnet-4"
@@ -182,7 +197,7 @@ workflows:
 
 ```bash
 make lint          # helm lint
-make test          # 90 helm-unittest tests
+make test          # 132 helm-unittest tests
 make template      # render standard example
 make template-all  # render all examples
 ```
@@ -194,7 +209,7 @@ Tests are in `tests/` using helm-unittest. Install with:
 helm plugin install https://github.com/helm-unittest/helm-unittest.git
 ```
 
-Test files cover: deployment (15), configmap (8), rbac (12), pvc (5), skills (4), extra configmaps (3), namespace (3), service (3), notes (3), workflow cronjobs (18), workflow configmaps (8), workflow rbac (8).
+Test files cover: deployment (21), orchestrator-rbac (15), rbac (12), configmap (8), workflow cronjobs (18), workflow configmaps (8), workflow rbac (8), pvc (5), workspace-content (5), workspace (5), skills (4), namespace (3), service (3), extra configmaps (3), notes (3).
 
 ### Template Debugging
 
