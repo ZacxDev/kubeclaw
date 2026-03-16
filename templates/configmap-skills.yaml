@@ -6,8 +6,8 @@ metadata:
   namespace: {{ include "kubeclaw.namespace" . }}
   labels:
     {{- include "kubeclaw.labels" . | nindent 4 }}
-data:
+binaryData:
   {{- range $filename, $content := .Values.skills }}
-  {{ $filename }}: {{ $content | toJson }}
+  {{ $filename }}: {{ $content | b64enc }}
   {{- end }}
 {{- end }}
