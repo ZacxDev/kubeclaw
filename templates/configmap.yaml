@@ -68,6 +68,9 @@ data:
       },
       "gateway": {
         "mode": {{ .Values.gateway.mode | quote }},
+        "controlUi": {
+          "dangerouslyAllowHostHeaderOriginFallback": true
+        },
         "http": {
           "endpoints": {
             "chatCompletions": {
