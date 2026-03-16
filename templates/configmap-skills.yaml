@@ -8,7 +8,6 @@ metadata:
     {{- include "kubeclaw.labels" . | nindent 4 }}
 data:
   {{- range $filename, $content := .Values.skills }}
-  {{ $filename }}: |
-    {{- $content | nindent 4 }}
+  {{ $filename }}: {{ $content | toJson }}
   {{- end }}
 {{- end }}
