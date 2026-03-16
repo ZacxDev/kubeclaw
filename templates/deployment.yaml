@@ -320,14 +320,18 @@ spec:
               {{- end }}
 
               # --- Generate openclaw.json with secrets injected ---
+              # Gateway v2026.3+ requires hooks.token != gateway.auth.token.
+              # Derive a distinct gateway token from HOOKS_TOKEN.
+              GATEWAY_TOKEN=$(echo -n "gw-${HOOKS_TOKEN}" | sha256sum | cut -d' ' -f1)
               cat /config/openclaw.json | jq \
                 --arg matrix_token "$MATRIX_ACCESS_TOKEN" \
                 --arg telegram_token "$TELEGRAM_BOT_TOKEN" \
                 --arg hooks_token "$HOOKS_TOKEN" \
+                --arg gateway_token "$GATEWAY_TOKEN" \
                 '.channels.matrix.accessToken = $matrix_token |
                  .channels.telegram.botToken = $telegram_token |
                  .hooks.token = $hooks_token |
-                 .gateway.auth.token = $hooks_token' \
+                 .gateway.auth.token = $gateway_token' \
                 > /root/.openclaw/openclaw.json
               chmod 600 /root/.openclaw/openclaw.json
 
