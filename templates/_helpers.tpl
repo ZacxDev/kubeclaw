@@ -6,10 +6,10 @@ Fullname — just the agentName, truncated to 63 chars.
 {{- end }}
 
 {{/*
-Namespace — devpod-{agentName}
+Namespace — namespaceOverride or devpod-{agentName}
 */}}
 {{- define "kubeclaw.namespace" -}}
-devpod-{{ include "kubeclaw.fullname" . }}
+{{- .Values.namespaceOverride | default (printf "devpod-%s" (include "kubeclaw.fullname" .)) -}}
 {{- end }}
 
 {{/*
