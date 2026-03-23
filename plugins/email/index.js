@@ -39,18 +39,16 @@ const plugin = {
         },
         agentTools: [
           {
-            tool: {
-              name: "send_email",
-              description: "Send an email to a recipient",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  to: { type: "string", description: "Recipient email address" },
-                  subject: { type: "string", description: "Email subject line" },
-                  body: { type: "string", description: "Email body text" },
-                },
-                required: ["to", "subject", "body"],
+            name: "send_email",
+            description: "Send an email to a recipient",
+            inputSchema: {
+              type: "object",
+              properties: {
+                to: { type: "string", description: "Recipient email address" },
+                subject: { type: "string", description: "Email subject line" },
+                body: { type: "string", description: "Email body text" },
               },
+              required: ["to", "subject", "body"],
             },
             execute: async (input) => {
               const portalUrl = process.env.PORTAL_URL;
