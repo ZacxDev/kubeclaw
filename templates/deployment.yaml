@@ -375,6 +375,38 @@ spec:
               {{ .Values.extraInitCommands | nindent 14 }}
               {{- end }}
 
+              # --- Workspace sync (background) ---
+              # Watches /data/workspace for changes and uploads to portal API.
+              # Uses find -newer to detect modifications since last sync cycle.
+              if [ -n "$PORTAL_URL" ] && [ -n "$HOOKS_TOKEN" ]; then
+                (
+                  WORKSPACE="/data/workspace"
+                  MARKER="/tmp/.workspace-sync-marker"
+                  touch "$MARKER"
+                  sleep 30  # initial delay — let gateway start first
+                  while true; do
+                    sleep 15
+                    # Find files modified since last sync (skip hidden dirs and marker)
+                    changed=$(find "$WORKSPACE" -newer "$MARKER" -type f ! -path '*/\.*' 2>/dev/null)
+                    [ -z "$changed" ] && continue
+                    echo "$changed" | while IFS= read -r filepath; do
+                      relpath="${filepath#$WORKSPACE/}"
+                      content=$(cat "$filepath" 2>/dev/null) || continue
+                      payload=$(jq -n --arg path "$relpath" --arg content "$content" '{path: $path, content: $content}')
+                      curl -sf -X POST \
+                        -H "Authorization: Bearer $HOOKS_TOKEN" \
+                        -H "Content-Type: application/json" \
+                        -d "$payload" \
+                        "$PORTAL_URL/api/internal/workspace" >/dev/null 2>&1 \
+                        && echo "[$(date -Iseconds)] workspace-sync: synced $relpath" \
+                        || echo "[$(date -Iseconds)] workspace-sync: failed $relpath" >&2
+                    done
+                    touch "$MARKER"
+                  done
+                ) &
+                echo "[$(date -Iseconds)] Workspace sync started (background)"
+              fi
+
               # --- Gateway restart loop ---
               while true; do
                 echo "[$(date -Iseconds)] Starting openclaw gateway..."
