@@ -50,6 +50,13 @@ data:
           "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},
           "sendReadReceipts": {{ .Values.channels.whatsapp.sendReadReceipts }}
         }
+        {{- if .Values.channels.sms.enabled }},
+        "sms": {
+          "enabled": true,
+          "provider": {{ .Values.channels.sms.provider | quote }},
+          "phoneNumber": {{ .Values.channels.sms.phoneNumber | quote }}
+        }
+        {{- end }}
         {{- if .Values.channels.email.enabled }},
         "email": {
           "enabled": true,

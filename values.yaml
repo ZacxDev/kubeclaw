@@ -109,6 +109,13 @@ channels:
     groupPolicy: "disabled"
     # -- Send read receipts
     sendReadReceipts: true
+  sms:
+    # -- Enable SMS channel (Twilio)
+    enabled: false
+    # -- SMS provider
+    provider: "twilio"
+    # -- Twilio phone number in E.164 format
+    phoneNumber: ""
   email:
     # -- Enable email channel (Mailpit + CronJob poller)
     enabled: false
