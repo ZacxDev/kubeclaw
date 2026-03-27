@@ -381,36 +381,94 @@ spec:
               {{ .Values.extraInitCommands | nindent 14 }}
               {{- end }}
 
-              # --- Workspace sync (background) ---
-              # Watches /data/workspace for changes and uploads to portal API.
-              # Uses find -newer to detect modifications since last sync cycle.
+              # --- Workspace sync (2-way, background) ---
+              # Syncs /data/workspace ↔ portal S3 via the workspace API.
+              #
+              # On startup: pulls files from S3 that aren't on disk yet.
+              # Every 15s: uploads changed files (find -newer), skips binary.
+              # Every ~2.5min: reconciles deletions (local deletes → S3 deletes).
+              #
+              # X-Sync-Source: workspace-sync header prevents the portal from
+              # writing files back to the pod (which would cause an mtime loop).
               if [ -n "$PORTAL_URL" ] && [ -n "$HOOKS_TOKEN" ]; then
+                # --- Initial pull: restore workspace from S3 ---
+                WORKSPACE="{{ include "kubeclaw.workspace" . }}"
+                _ws_filelist=$(curl -sf \
+                  -H "Authorization: Bearer $HOOKS_TOKEN" \
+                  "$PORTAL_URL/api/internal/workspace" 2>/dev/null || true)
+                if [ -n "$_ws_filelist" ] && echo "$_ws_filelist" | jq -e '.files' >/dev/null 2>&1; then
+                  echo "$_ws_filelist" | jq -c '.files[]' | while read -r _entry; do
+                    _fpath=$(echo "$_entry" | jq -r '.filename')
+                    _fid=$(echo "$_entry" | jq -r '.id')
+                    if [ ! -f "$WORKSPACE/$_fpath" ]; then
+                      mkdir -p "$WORKSPACE/$(dirname "$_fpath")"
+                      curl -sf \
+                        -H "Authorization: Bearer $HOOKS_TOKEN" \
+                        "$PORTAL_URL/api/internal/workspace/$_fid" \
+                        -o "$WORKSPACE/$_fpath" 2>/dev/null \
+                        && echo "[$(date -Iseconds)] workspace-sync: restored $_fpath" \
+                        || echo "[$(date -Iseconds)] workspace-sync: failed to restore $_fpath" >&2
+                    fi
+                  done
+                fi
+
+                # --- Background sync loop ---
                 (
-                  WORKSPACE="/data/workspace"
                   MARKER="/tmp/.workspace-sync-marker"
                   touch "$MARKER"
                   sleep 30  # initial delay — let gateway start first
+                  CYCLE=0
                   while true; do
                     sleep 15
-                    # Find files modified since last sync (skip hidden dirs and marker)
+                    CYCLE=$((CYCLE + 1))
+
+                    # --- Upload: find files modified since last sync ---
                     changed=$(find "$WORKSPACE" -newer "$MARKER" -type f ! -path '*/\.*' 2>/dev/null)
-                    [ -z "$changed" ] && continue
-                    echo "$changed" | while IFS= read -r filepath; do
-                      relpath="${filepath#$WORKSPACE/}"
-                      content=$(cat "$filepath" 2>/dev/null) || continue
-                      payload=$(jq -n --arg path "$relpath" --arg content "$content" '{path: $path, content: $content}')
-                      curl -sf -X POST \
+                    if [ -n "$changed" ]; then
+                      echo "$changed" | while IFS= read -r filepath; do
+                        relpath="${filepath#$WORKSPACE/}"
+                        # Skip binary files — only sync text content
+                        mimetype=$(file -b --mime-type "$filepath" 2>/dev/null)
+                        case "$mimetype" in
+                          text/*|application/json|application/xml|application/javascript|application/x-yaml|application/toml) ;;
+                          *) continue ;;
+                        esac
+                        content=$(cat "$filepath" 2>/dev/null) || continue
+                        payload=$(jq -n --arg path "$relpath" --arg content "$content" '{path: $path, content: $content}')
+                        curl -sf -X POST \
+                          -H "Authorization: Bearer $HOOKS_TOKEN" \
+                          -H "Content-Type: application/json" \
+                          -H "X-Sync-Source: workspace-sync" \
+                          -d "$payload" \
+                          "$PORTAL_URL/api/internal/workspace" >/dev/null 2>&1 \
+                          && echo "[$(date -Iseconds)] workspace-sync: synced $relpath" \
+                          || echo "[$(date -Iseconds)] workspace-sync: failed $relpath" >&2
+                      done
+                      touch "$MARKER"
+                    fi
+
+                    # --- Delete reconciliation: every 10 cycles (~2.5 min) ---
+                    if [ $((CYCLE % 10)) -eq 0 ]; then
+                      remote_list=$(curl -sf \
                         -H "Authorization: Bearer $HOOKS_TOKEN" \
-                        -H "Content-Type: application/json" \
-                        -d "$payload" \
-                        "$PORTAL_URL/api/internal/workspace" >/dev/null 2>&1 \
-                        && echo "[$(date -Iseconds)] workspace-sync: synced $relpath" \
-                        || echo "[$(date -Iseconds)] workspace-sync: failed $relpath" >&2
-                    done
-                    touch "$MARKER"
+                        "$PORTAL_URL/api/internal/workspace" 2>/dev/null || true)
+                      if [ -n "$remote_list" ] && echo "$remote_list" | jq -e '.files' >/dev/null 2>&1; then
+                        echo "$remote_list" | jq -r '.files[].filename' | while IFS= read -r rfile; do
+                          [ -z "$rfile" ] && continue
+                          if [ ! -f "$WORKSPACE/$rfile" ]; then
+                            curl -sf -X DELETE \
+                              -H "Authorization: Bearer $HOOKS_TOKEN" \
+                              -H "X-Sync-Source: workspace-sync" \
+                              "$PORTAL_URL/api/internal/workspace/by-path?path=$(printf '%s' "$rfile" | jq -sRr @uri)" >/dev/null 2>&1 \
+                              && echo "[$(date -Iseconds)] workspace-sync: deleted $rfile" \
+                              || echo "[$(date -Iseconds)] workspace-sync: delete failed $rfile" >&2
+                          fi
+                        done
+                      fi
+                    fi
                   done
                 ) &
-                echo "[$(date -Iseconds)] Workspace sync started (background)"
+                echo "[$(date -Iseconds)] Workspace sync started (2-way, background)"
               fi
 
               # --- Gateway restart loop ---
