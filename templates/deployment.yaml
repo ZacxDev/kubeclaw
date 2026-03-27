@@ -467,14 +467,28 @@ spec:
                     fi
 
                     # --- Delete reconciliation: every 10 cycles (~2.5 min) ---
+                    # Skip files updated in the last 5 minutes to avoid racing with
+                    # browser uploads that are still being synced to the pod via k8s exec.
                     if [ $((CYCLE % 10)) -eq 0 ]; then
                       remote_list=$(curl -sf \
                         -H "Authorization: Bearer $HOOKS_TOKEN" \
                         "$PORTAL_URL/api/internal/workspace" 2>/dev/null || true)
                       if [ -n "$remote_list" ] && echo "$remote_list" | jq -e '.files' >/dev/null 2>&1; then
-                        echo "$remote_list" | jq -r '.files[].filename' | while IFS= read -r rfile; do
+                        now_epoch=$(date +%s)
+                        echo "$remote_list" | jq -c '.files[]' | while IFS= read -r _fentry; do
+                          rfile=$(echo "$_fentry" | jq -r '.filename')
                           [ -z "$rfile" ] && continue
                           if [ ! -f "$WORKSPACE/$rfile" ]; then
+                            # Grace period: don't delete files updated < 5 min ago
+                            # (may still be in transit from a browser upload via k8s exec)
+                            updated_at=$(echo "$_fentry" | jq -r '.updated_at // empty')
+                            if [ -n "$updated_at" ]; then
+                              file_epoch=$(date -d "$updated_at" +%s 2>/dev/null || echo 0)
+                              age=$((now_epoch - file_epoch))
+                              if [ "$age" -lt 300 ]; then
+                                continue
+                              fi
+                            fi
                             curl -sf -X DELETE \
                               -H "Authorization: Bearer $HOOKS_TOKEN" \
                               -H "X-Sync-Source: workspace-sync" \
