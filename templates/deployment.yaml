@@ -353,6 +353,25 @@ spec:
               echo "[$(date -Iseconds)] Running openclaw doctor --fix..."
               openclaw doctor --fix || echo "Doctor exited with $?, continuing..."
 
+              # --- Strip channels not explicitly enabled in helm values ---
+              # openclaw doctor may auto-enable channels (e.g. sms) that the
+              # gateway version doesn't support. Remove any not in the configmap.
+              {{- $enabledChannels := list }}
+              {{- if .Values.channels.matrix.enabled }}{{ $enabledChannels = append $enabledChannels "matrix" }}{{ end }}
+              {{- if .Values.channels.telegram.enabled }}{{ $enabledChannels = append $enabledChannels "telegram" }}{{ end }}
+              {{- if .Values.channels.whatsapp.enabled }}{{ $enabledChannels = append $enabledChannels "whatsapp" }}{{ end }}
+              {{- if .Values.channels.email.enabled }}{{ $enabledChannels = append $enabledChannels "email" }}{{ end }}
+              {{- if .Values.channels.sms.enabled }}{{ $enabledChannels = append $enabledChannels "sms" }}{{ end }}
+              ALLOWED_CHANNELS='{{ join "," $enabledChannels }}'
+              if [ -f /root/.openclaw/openclaw.json ]; then
+                jq --arg allowed "$ALLOWED_CHANNELS" '
+                  ($allowed | split(",")) as $keep |
+                  .channels |= with_entries(select(.key | IN($keep[])))
+                ' /root/.openclaw/openclaw.json > /tmp/oc-clean.json \
+                  && mv /tmp/oc-clean.json /root/.openclaw/openclaw.json \
+                  && echo "[$(date -Iseconds)] Stripped unauthorized channels from openclaw.json"
+              fi
+
               # --- Bootstrap agent auth from Claude credentials ---
               AGENT_ID="{{ include "kubeclaw.agentId" . }}"
               AGENT_AUTH_DIR="/root/.openclaw/agents/$AGENT_ID/agent"
