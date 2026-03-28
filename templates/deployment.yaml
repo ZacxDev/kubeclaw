@@ -328,14 +328,18 @@ spec:
                 --arg telegram_token "$TELEGRAM_BOT_TOKEN" \
                 --arg hooks_token "$HOOKS_TOKEN" \
                 --arg gateway_token "$GATEWAY_TOKEN" \
+                {{- if .Values.channels.sms.enabled }}
                 --arg twilio_sid "$TWILIO_ACCOUNT_SID" \
                 --arg twilio_token "$TWILIO_AUTH_TOKEN" \
                 --arg twilio_phone "$TWILIO_PHONE_NUMBER" \
+                {{- end }}
                 '.channels.matrix.accessToken = $matrix_token |
                  .channels.telegram.botToken = $telegram_token |
+                 {{- if .Values.channels.sms.enabled }}
                  .channels.sms.accountSid = $twilio_sid |
                  .channels.sms.authToken = $twilio_token |
                  .channels.sms.phoneNumber = $twilio_phone |
+                 {{- end }}
                  .hooks.token = $hooks_token |
                  .gateway.auth.token = $gateway_token' \
                 > /root/.openclaw/openclaw.json
