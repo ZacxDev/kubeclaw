@@ -35,6 +35,9 @@ data:
         "matrix": {
           "enabled": {{ .Values.channels.matrix.enabled }},
           "homeserver": {{ .Values.channels.matrix.homeserver | quote }},
+          {{- if .Values.channels.matrix.streamMode }}
+          "streamMode": {{ .Values.channels.matrix.streamMode | quote }},
+          {{- end }}
           "dm": {
             "policy": {{ .Values.channels.matrix.dm.policy | quote }},
             "allowFrom": {{ .Values.channels.matrix.dm.allowFrom | toJson }}

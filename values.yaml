@@ -86,6 +86,8 @@ channels:
     enabled: true
     # -- Matrix homeserver URL
     homeserver: "https://matrix.example.com"
+    # -- Stream mode for responses ("partial" = single message with edits, "" = block streaming)
+    streamMode: "partial"
     # -- DM policy
     dm:
       policy: "open"
