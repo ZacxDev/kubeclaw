@@ -43,7 +43,13 @@ data:
             "allowFrom": {{ .Values.channels.matrix.dm.allowFrom | toJson }}
           },
           "groupPolicy": {{ .Values.channels.matrix.groupPolicy | quote }},
-          "autoJoin": {{ .Values.channels.matrix.autoJoin | quote }}
+          "autoJoin": {{ .Values.channels.matrix.autoJoin | quote }},
+          {{- if .Values.channels.matrix.typingIndicator }}
+          "typingIndicator": {
+            "enabled": {{ .Values.channels.matrix.typingIndicator.enabled }},
+            "timeout": {{ .Values.channels.matrix.typingIndicator.timeout | default 30000 }}
+          }
+          {{- end }}
         },
         "telegram": {
           "enabled": {{ .Values.channels.telegram.enabled }}

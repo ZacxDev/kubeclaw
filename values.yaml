@@ -97,6 +97,11 @@ channels:
     groupPolicy: "open"
     # -- Auto-join behavior
     autoJoin: "always"
+    # -- Send typing indicators while agent is processing
+    typingIndicator:
+      enabled: true
+      # -- Typing timeout in ms (refreshed periodically for long operations)
+      timeout: 30000
   telegram:
     # -- Enable Telegram channel
     enabled: false
