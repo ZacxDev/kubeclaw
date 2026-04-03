@@ -37,7 +37,16 @@ AGENT_HS = os.environ.get("AGENT_HOMESERVER", "matrix.homelab.lan")
 
 SYNC_TIMEOUT = 30000  # 30s long-poll
 SKILLS_STATE_TYPE = "dev.clankselect.agent_skills"
+SUMMARY_STATE_TYPE = "dev.clankselect.room_summary"
 USER_AGENT = "SkillResolverBot/1.0"
+
+SGLANG_URL = os.environ.get("SGLANG_URL", "http://sglang-server.promptver:80")
+SGLANG_MODEL = os.environ.get("SGLANG_MODEL", "")  # auto-detect if empty
+SUMMARY_IDLE_SECONDS = int(os.environ.get("SUMMARY_IDLE_SECONDS", "600"))  # 10 min
+MIN_MESSAGES_FOR_SUMMARY = 3
+
+# Room state tracking for summaries
+room_state = {}  # room_id -> { last_msg_ts, last_summary_ts, msg_count_since_summary }
 
 # SSL context for in-cluster requests (some proxies have custom CAs)
 import ssl
@@ -207,6 +216,123 @@ def publish_for_agent(room_id, agent):
         send_notice(room_id, f"Failed to publish skills for {agent['id']} (permission denied?).")
 
 
+def get_sglang_model():
+    """Auto-detect the model name from SGLang server."""
+    if SGLANG_MODEL:
+        return SGLANG_MODEL
+    try:
+        req = urllib.request.Request(f"{SGLANG_URL}/v1/models",
+            headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            models = data.get("data", [])
+            if models:
+                return models[0].get("id", "")
+    except Exception:
+        pass
+    return ""
+
+
+def get_room_messages_for_summary(room_id, limit=50):
+    """Fetch recent messages from a room for summarization."""
+    encoded = urllib.parse.quote(room_id, safe="")
+    # Use /messages endpoint to get recent history
+    result = matrix_request("GET",
+        f"/rooms/{encoded}/messages?dir=b&limit={limit}&filter=" +
+        urllib.parse.quote(json.dumps({"types": ["m.room.message"]})))
+    if not result:
+        return []
+
+    messages = []
+    for event in reversed(result.get("chunk", [])):
+        if event.get("type") != "m.room.message":
+            continue
+        sender = event.get("sender", "")
+        body = event.get("content", {}).get("body", "")
+        if not body or sender == BOT_USER_ID:
+            continue
+        # Extract localpart from @user:server
+        name = sender.split(":")[0].lstrip("@") if ":" in sender else sender
+        messages.append(f"{name}: {body}")
+    return messages
+
+
+def generate_summary(messages):
+    """Call SGLang to generate a conversation summary."""
+    model = get_sglang_model()
+    if not model:
+        print("[WARN] No SGLang model available for summary", file=sys.stderr)
+        return None
+
+    conversation = "\n".join(messages[-50:])  # Last 50 messages max
+    prompt = f"""Summarize this conversation concisely in 2-3 sentences. Focus on what was discussed, decisions made, and any pending actions.
+
+Conversation:
+{conversation}
+
+Summary:"""
+
+    try:
+        data = json.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 200,
+            "temperature": 0.3,
+        }).encode()
+        req = urllib.request.Request(f"{SGLANG_URL}/v1/chat/completions",
+            data=data, method="POST",
+            headers={"Content-Type": "application/json", "User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read())
+            choices = result.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "").strip()
+    except Exception as e:
+        print(f"[WARN] SGLang summary failed: {e}", file=sys.stderr)
+    return None
+
+
+def publish_summary(room_id, summary):
+    """Set dev.clankselect.room_summary state event in a room."""
+    encoded = urllib.parse.quote(room_id, safe="")
+    result = matrix_request("PUT",
+        f"/rooms/{encoded}/state/{SUMMARY_STATE_TYPE}/",
+        {"summary": summary, "ts": int(time.time() * 1000)})
+    return result is not None
+
+
+def check_idle_rooms():
+    """Check for rooms that have been idle and need summaries."""
+    now = time.time()
+    for room_id, state in list(room_state.items()):
+        idle_time = now - state.get("last_msg_ts", now)
+        last_summary = state.get("last_summary_ts", 0)
+        msg_count = state.get("msg_count_since_summary", 0)
+
+        # Skip if: not idle enough, too few messages, or already summarized recently
+        if idle_time < SUMMARY_IDLE_SECONDS:
+            continue
+        if msg_count < MIN_MESSAGES_FOR_SUMMARY:
+            continue
+        if last_summary > state.get("last_msg_ts", 0):
+            continue
+
+        print(f"[SUMMARY] Generating summary for {room_id} (idle {int(idle_time)}s, {msg_count} msgs)")
+
+        messages = get_room_messages_for_summary(room_id)
+        if len(messages) < MIN_MESSAGES_FOR_SUMMARY:
+            continue
+
+        summary = generate_summary(messages)
+        if summary:
+            if publish_summary(room_id, summary):
+                state["last_summary_ts"] = now
+                state["msg_count_since_summary"] = 0
+                print(f"[SUMMARY] Published for {room_id}: {summary[:80]}...")
+            else:
+                print(f"[WARN] Failed to publish summary for {room_id}", file=sys.stderr)
+
+
 def sync_loop():
     """Main Matrix /sync loop."""
     print(f"[INFO] Skill Resolver Bot starting as {BOT_USER_ID}")
@@ -246,6 +372,15 @@ def sync_loop():
                     if event.get("sender") == BOT_USER_ID:
                         continue
 
+                    # Track room activity for summaries
+                    if room_id not in room_state:
+                        room_state[room_id] = {"last_msg_ts": 0, "last_summary_ts": 0, "msg_count_since_summary": 0}
+                    rs = room_state[room_id]
+                    msg_ts = event.get("origin_server_ts", 0) / 1000.0
+                    if msg_ts > rs["last_msg_ts"]:
+                        rs["last_msg_ts"] = msg_ts
+                    rs["msg_count_since_summary"] = rs.get("msg_count_since_summary", 0) + 1
+
                     body = event.get("content", {}).get("body", "")
                     if body.startswith("/skills"):
                         print(f"[CMD] {room_id}: {body}")
@@ -256,6 +391,10 @@ def sync_loop():
                 print(f"[JOIN] Accepting invite to {room_id}")
                 encoded = urllib.parse.quote(room_id, safe="")
                 matrix_request("POST", f"/rooms/{encoded}/join", {})
+
+            # Check for idle rooms that need summaries
+            if since:  # Skip on initial sync
+                check_idle_rooms()
 
         except urllib.error.URLError as e:
             print(f"[ERROR] Sync failed: {e}", file=sys.stderr)
