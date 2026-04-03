@@ -509,103 +509,86 @@ spec:
               fi
 
               # --- Skills API endpoint (port 18790) ---
-              # Reads skills from SKILL.md frontmatter, publishes to Matrix rooms on request.
-              # POST /api/publish-skills { "roomId": "!abc:server" }
-              # GET  /api/skills (list available skills)
-              python3 - << 'SKILLS_API' &
-import http.server, json, os, re, urllib.request, urllib.error
-
+              # Reads skills from SKILL.md frontmatter, serves JSON.
+              # Written to file to avoid YAML parsing issues with inline Python.
+              base64 -d > /tmp/skills-api.py << 'B64'
+              {{- $script := `
+import http.server, json, os, re, urllib.request, urllib.error, ssl
 SKILLS_DIR = "/root/.openclaw/skills"
 CONFIG_PATH = "/root/.openclaw/openclaw.json"
-
+_ctx = ssl.create_default_context()
+_ctx.check_hostname = False
+_ctx.verify_mode = ssl.CERT_NONE
+UA = "SkillsAPI/1.0"
 def read_config():
     try:
         with open(CONFIG_PATH) as f:
             cfg = json.load(f)
-        hs = cfg.get("channels", {}).get("matrix", {}).get("homeserver", "")
-        token = cfg.get("channels", {}).get("matrix", {}).get("accessToken", "")
-        return hs, token
+        return cfg.get("channels",{}).get("matrix",{}).get("homeserver",""), cfg.get("channels",{}).get("matrix",{}).get("accessToken","")
     except Exception:
         return "", ""
-
 def list_skills():
     skills = []
     if not os.path.isdir(SKILLS_DIR):
         return skills
     for d in sorted(os.listdir(SKILLS_DIR)):
-        path = os.path.join(SKILLS_DIR, d, "SKILL.md")
-        if not os.path.isfile(path):
+        p = os.path.join(SKILLS_DIR, d, "SKILL.md")
+        if not os.path.isfile(p):
             continue
-        with open(path) as f:
-            content = f.read()
-        m = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+        with open(p) as f:
+            c = f.read()
+        m = re.match(r"^---\n(.*?)\n---", c, re.DOTALL)
         meta = {}
         if m:
             for line in m.group(1).splitlines():
                 kv = line.split(":", 1)
                 if len(kv) == 2:
                     meta[kv[0].strip()] = kv[1].strip()
-        skills.append({
-            "id": d,
-            "name": meta.get("name", d),
-            "description": meta.get("description", ""),
-            "trigger": "/" + d,
-            "userInvocable": meta.get("user-invocable", "false").lower() == "true"
-        })
+        skills.append({"id": d, "name": meta.get("name", d), "description": meta.get("description", ""), "trigger": "/" + d, "userInvocable": meta.get("user-invocable", "false").lower() == "true"})
     return skills
-
 def publish_skills(room_id):
     hs, token = read_config()
     if not hs or not token:
-        return 500, "Matrix config not available"
-    skills = [s for s in list_skills() if s.get("userInvocable", False)]
-    if not skills:
-        skills = list_skills()
+        return 500, "no config"
+    skills = [s for s in list_skills() if s.get("userInvocable")] or list_skills()
     encoded = urllib.request.quote(room_id, safe="")
-    url = f"{hs}/_matrix/client/v3/rooms/{encoded}/state/dev.clankselect.agent_skills/"
-    data = json.dumps({"skills": skills}).encode()
-    req = urllib.request.Request(url, data=data, method="PUT", headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}"
-    })
+    req = urllib.request.Request(hs + "/_matrix/client/v3/rooms/" + encoded + "/state/dev.clankselect.agent_skills/", json.dumps({"skills": skills}).encode(), method="PUT", headers={"Content-Type": "application/json", "Authorization": "Bearer " + token, "User-Agent": UA})
     try:
-        urllib.request.urlopen(req)
+        urllib.request.urlopen(req, context=_ctx)
         return 200, "ok"
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
-
-class Handler(http.server.BaseHTTPRequestHandler):
+class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/skills":
-            self.send_json(200, list_skills())
+            self._json(200, list_skills())
         else:
-            self.send_json(404, {"error": "not found"})
-
+            self._json(404, {"error": "not found"})
     def do_POST(self):
         if self.path == "/api/publish-skills":
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length)) if length else {}
-            room_id = body.get("roomId")
-            if not room_id:
-                self.send_json(400, {"error": "roomId required"})
+            l = int(self.headers.get("Content-Length", 0))
+            b = json.loads(self.rfile.read(l)) if l else {}
+            rid = b.get("roomId")
+            if not rid:
+                self._json(400, {"error": "roomId required"})
                 return
-            code, msg = publish_skills(room_id)
-            self.send_json(code, {"status": msg})
+            c, m = publish_skills(rid)
+            self._json(c, {"status": m})
         else:
-            self.send_json(404, {"error": "not found"})
-
-    def send_json(self, code, data):
+            self._json(404, {"error": "not found"})
+    def _json(self, code, data):
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
-
     def log_message(self, *a):
         pass
-
-http.server.HTTPServer(("0.0.0.0", 18790), Handler).serve_forever()
-SKILLS_API
+http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
+` }}
+              {{ $script | b64enc }}
+              B64
+              python3 -u /tmp/skills-api.py &
               echo "[$(date -Iseconds)] Skills API started on :18790"
 
               # --- Gateway restart loop ---
