@@ -83,12 +83,13 @@ def send_notice(room_id, text):
     })
 
 
-def set_skills_state(room_id, skills):
-    """Set dev.clankselect.agent_skills state event in a room."""
-    encoded = urllib.parse.quote(room_id, safe="")
+def set_skills_state(room_id, skills, agent_id="", bot_user_id=""):
+    """Set dev.clankselect.agent_skills state event in a room (per-agent via state_key)."""
+    encoded_room = urllib.parse.quote(room_id, safe="")
+    state_key = urllib.parse.quote(bot_user_id, safe="") if bot_user_id else ""
     result = matrix_request("PUT",
-        f"/rooms/{encoded}/state/{SKILLS_STATE_TYPE}/",
-        {"skills": skills})
+        f"/rooms/{encoded_room}/state/{SKILLS_STATE_TYPE}/{state_key}",
+        {"skills": skills, "agentId": agent_id, "botUserId": bot_user_id})
     return result is not None
 
 
@@ -209,7 +210,7 @@ def publish_for_agent(room_id, agent):
         send_notice(room_id, f"Could not fetch skills for {agent['id']}.")
         return
 
-    if set_skills_state(room_id, skills):
+    if set_skills_state(room_id, skills, agent["id"], agent.get("botUserId", "")):
         skill_names = ", ".join(s.get("trigger", s.get("id", "?")) for s in skills)
         send_notice(room_id, f"{agent['id']}: {skill_names}")
     else:
