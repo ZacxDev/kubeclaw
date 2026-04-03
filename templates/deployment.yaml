@@ -527,6 +527,29 @@ def read_config():
         return cfg.get("channels",{}).get("matrix",{}).get("homeserver",""), cfg.get("channels",{}).get("matrix",{}).get("accessToken","")
     except Exception:
         return "", ""
+def parse_skill(d, content):
+    fm = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+    if fm:
+        meta = {}
+        for line in fm.group(1).splitlines():
+            kv = line.split(":", 1)
+            if len(kv) == 2:
+                meta[kv[0].strip()] = kv[1].strip()
+        return {"id": d, "name": meta.get("name", d), "description": meta.get("description", ""), "trigger": "/" + d, "userInvocable": meta.get("user-invocable", "false").lower() == "true"}
+    title = d
+    tm = re.search(r"^#\s+(.+)", content, re.MULTILINE)
+    if tm:
+        title = tm.group(1).strip()
+    caps = []
+    cm = re.search(r"##\s+.*(?:Capabilit|Skill|Command|Feature).*\n((?:\s*(?:\d+\.|-|\*)\s+.+\n?)+)", content, re.IGNORECASE)
+    if cm:
+        for line in cm.group(1).strip().splitlines():
+            item = re.sub(r"^\s*(?:\d+\.|-|\*)\s+\*{0,2}", "", line).strip()
+            short = item.split(" - ")[0].split(" -- ")[0].strip().rstrip("*")
+            if short:
+                caps.append(short)
+    desc = ", ".join(caps[:6]) if caps else title
+    return {"id": d, "name": title, "description": desc, "trigger": "/" + d, "userInvocable": True}
 def list_skills():
     skills = []
     if not os.path.isdir(SKILLS_DIR):
@@ -537,14 +560,7 @@ def list_skills():
             continue
         with open(p) as f:
             c = f.read()
-        m = re.match(r"^---\n(.*?)\n---", c, re.DOTALL)
-        meta = {}
-        if m:
-            for line in m.group(1).splitlines():
-                kv = line.split(":", 1)
-                if len(kv) == 2:
-                    meta[kv[0].strip()] = kv[1].strip()
-        skills.append({"id": d, "name": meta.get("name", d), "description": meta.get("description", ""), "trigger": "/" + d, "userInvocable": meta.get("user-invocable", "false").lower() == "true"})
+        skills.append(parse_skill(d, c))
     return skills
 def publish_skills(room_id):
     hs, token = read_config()
