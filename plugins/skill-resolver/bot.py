@@ -37,6 +37,13 @@ AGENT_HS = os.environ.get("AGENT_HOMESERVER", "matrix.homelab.lan")
 
 SYNC_TIMEOUT = 30000  # 30s long-poll
 SKILLS_STATE_TYPE = "dev.clankselect.agent_skills"
+USER_AGENT = "SkillResolverBot/1.0"
+
+# SSL context for in-cluster requests (some proxies have custom CAs)
+import ssl
+_ssl_ctx = ssl.create_default_context()
+_ssl_ctx.check_hostname = False
+_ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
 def matrix_request(method, path, body=None):
@@ -46,9 +53,10 @@ def matrix_request(method, path, body=None):
     req = urllib.request.Request(url, data=data, method=method, headers={
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
     })
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=_ssl_ctx) as resp:
             return json.loads(resp.read())
     except urllib.error.HTTPError as e:
         err_body = e.read().decode()
@@ -223,9 +231,9 @@ def sync_loop():
 
             req = urllib.request.Request(
                 f"{HOMESERVER}/_matrix/client/v3/sync?{params}",
-                headers={"Authorization": f"Bearer {ACCESS_TOKEN}"},
+                headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "User-Agent": USER_AGENT},
             )
-            with urllib.request.urlopen(req, timeout=SYNC_TIMEOUT // 1000 + 10) as resp:
+            with urllib.request.urlopen(req, timeout=SYNC_TIMEOUT // 1000 + 10, context=_ssl_ctx) as resp:
                 data = json.loads(resp.read())
 
             since = data.get("next_batch")
