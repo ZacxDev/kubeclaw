@@ -559,11 +559,12 @@ def parse_skill(d, content):
 def list_skills():
     skills = []
     seen = set()
-    dirs = [SKILLS_DIR]
     ws = get_workspace()
+    # Scan skill directories (subdir/SKILL.md pattern)
+    skill_dirs = [SKILLS_DIR]
     if ws:
-        dirs.append(os.path.join(ws, ".claude", "skills"))
-    for sdir in dirs:
+        skill_dirs.append(os.path.join(ws, ".claude", "skills"))
+    for sdir in skill_dirs:
         if not os.path.isdir(sdir):
             continue
         for d in sorted(os.listdir(sdir)):
@@ -576,6 +577,20 @@ def list_skills():
             with open(p) as f:
                 c = f.read()
             skills.append(parse_skill(d, c))
+    # Scan command directories (flat .md files)
+    if ws:
+        cmd_dir = os.path.join(ws, ".claude", "commands")
+        if os.path.isdir(cmd_dir):
+            for f in sorted(os.listdir(cmd_dir)):
+                if not f.endswith(".md"):
+                    continue
+                name = f[:-3]
+                if name in seen:
+                    continue
+                seen.add(name)
+                with open(os.path.join(cmd_dir, f)) as fh:
+                    c = fh.read()
+                skills.append(parse_skill(name, c))
     return skills
 def publish_skills(room_id):
     hs, token = read_config()
