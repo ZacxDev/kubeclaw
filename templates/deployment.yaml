@@ -513,9 +513,15 @@ spec:
               # Written to file to avoid YAML parsing issues with inline Python.
               base64 -d > /tmp/skills-api.py << 'B64'
               {{- $script := `
-import http.server, json, os, re, urllib.request, urllib.error, ssl
+import http.server, json, os, re, urllib.request, urllib.error, ssl, glob
 SKILLS_DIR = "/root/.openclaw/skills"
 CONFIG_PATH = "/root/.openclaw/openclaw.json"
+def get_workspace():
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f).get("agents",{}).get("defaults",{}).get("workspace","")
+    except Exception:
+        return ""
 _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
@@ -552,15 +558,24 @@ def parse_skill(d, content):
     return {"id": d, "name": title, "description": desc, "trigger": "/" + d, "userInvocable": True}
 def list_skills():
     skills = []
-    if not os.path.isdir(SKILLS_DIR):
-        return skills
-    for d in sorted(os.listdir(SKILLS_DIR)):
-        p = os.path.join(SKILLS_DIR, d, "SKILL.md")
-        if not os.path.isfile(p):
+    seen = set()
+    dirs = [SKILLS_DIR]
+    ws = get_workspace()
+    if ws:
+        dirs.append(os.path.join(ws, ".claude", "skills"))
+    for sdir in dirs:
+        if not os.path.isdir(sdir):
             continue
-        with open(p) as f:
-            c = f.read()
-        skills.append(parse_skill(d, c))
+        for d in sorted(os.listdir(sdir)):
+            if d in seen:
+                continue
+            p = os.path.join(sdir, d, "SKILL.md")
+            if not os.path.isfile(p):
+                continue
+            seen.add(d)
+            with open(p) as f:
+                c = f.read()
+            skills.append(parse_skill(d, c))
     return skills
 def publish_skills(room_id):
     hs, token = read_config()
