@@ -1,0 +1,82 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: skill-resolver
+  namespace: clawdbot-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: skill-resolver
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["list", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: skill-resolver
+subjects:
+  - kind: ServiceAccount
+    name: skill-resolver
+    namespace: clawdbot-system
+roleRef:
+  kind: ClusterRole
+  name: skill-resolver
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skill-resolver
+  namespace: clawdbot-system
+  labels:
+    app.kubernetes.io/name: skill-resolver
+    app.kubernetes.io/component: matrix-bot
+    app.kubernetes.io/part-of: openclaw-devpods
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: skill-resolver
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: skill-resolver
+        app.kubernetes.io/component: matrix-bot
+    spec:
+      serviceAccountName: skill-resolver
+      containers:
+        - name: bot
+          image: skill-resolver:latest  # Build and push to your registry
+          imagePullPolicy: Always
+          env:
+            - name: MATRIX_HOMESERVER
+              value: "https://matrix.zacx.dev"
+            - name: MATRIX_BOT_USER_ID
+              value: "@skill-resolver:matrix.homelab.lan"
+            - name: MATRIX_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: skill-resolver-credentials
+                  key: matrix-access-token
+            - name: KUBE_NAMESPACE_PREFIX
+              value: "devpod-"
+            - name: KUBE_SERVICE_SUFFIX
+              value: "-devpod"
+            - name: SKILLS_API_PORT
+              value: "18790"
+            - name: AGENT_HOMESERVER
+              value: "matrix.homelab.lan"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
