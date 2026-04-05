@@ -738,9 +738,9 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
             httpGet:
               path: /
               port: 18789
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 30
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds | default 10 }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold | default 30 }}
           livenessProbe:
             httpGet:
               path: /

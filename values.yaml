@@ -190,6 +190,12 @@ hooks:
 #   claude-credentials.json (all optional)
 existingSecret: ""
 
+# -- Startup probe configuration
+startupProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 30
+
 # -- Namespace configuration
 namespace:
   # -- Create the namespace

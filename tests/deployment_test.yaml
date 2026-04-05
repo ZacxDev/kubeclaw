@@ -86,7 +86,7 @@ tests:
         template: templates/deployment.yaml
       - equal:
           path: spec.template.spec.containers[0].startupProbe.initialDelaySeconds
-          value: 30
+          value: 5
         template: templates/deployment.yaml
       - equal:
           path: spec.template.spec.containers[0].startupProbe.failureThreshold
