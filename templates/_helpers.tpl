@@ -51,7 +51,7 @@ Workspace — agent.workspace or first repo path or /data/workspace
 Mention patterns — agent.mentionPatterns or ["@{agentName}", "{agentName}"]
 */}}
 {{- define "kubeclaw.mentionPatterns" -}}
-{{- if .Values.agent.mentionPatterns }}
+{{- if hasKey .Values.agent "mentionPatterns" }}
 {{- .Values.agent.mentionPatterns | toJson }}
 {{- else }}
 {{- list (printf "@%s" (include "kubeclaw.fullname" .)) (include "kubeclaw.fullname" .) | toJson }}
