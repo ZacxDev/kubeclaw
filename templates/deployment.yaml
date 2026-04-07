@@ -198,10 +198,12 @@ spec:
 
               {{- if .Values.snapshots.enabled }}
               # --- Snapshot tools (rclone) ---
-              echo "Installing rclone..."
-              curl -fsSL "https://downloads.rclone.org/rclone-current-linux-$(dpkg --print-architecture).deb" -o /tmp/rclone.deb
-              dpkg -i /tmp/rclone.deb
-              rm -f /tmp/rclone.deb
+              if ! command -v rclone >/dev/null 2>&1; then
+                echo "Installing rclone..."
+                curl -fsSL "https://downloads.rclone.org/rclone-current-linux-$(dpkg --print-architecture).deb" -o /tmp/rclone.deb
+                dpkg -i /tmp/rclone.deb
+                rm -f /tmp/rclone.deb
+              fi
 
               {{- $providers := dict "s3" "AWS" "minio" "Minio" "r2" "Cloudflare" }}
               {{- $rcloneProvider := index $providers (.Values.snapshots.provider | default "s3") | default "AWS" }}
