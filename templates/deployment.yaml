@@ -604,25 +604,29 @@ def publish_skills(room_id):
         return 200, "ok"
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
+def _git_env():
+    env = os.environ.copy()
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return env
+def _git_run(ws, args, timeout=5):
+    return subprocess.run(["git", "-C", ws] + args, capture_output=True, text=True, timeout=timeout, env=_git_env())
+def _git_branch(ws):
+    return _git_run(ws, ["rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
 def git_status():
     ws = get_workspace()
     if not ws or not os.path.isdir(os.path.join(ws, ".git")):
         return {"repos": []}
-    env = os.environ.copy()
-    env["GIT_OPTIONAL_LOCKS"] = "0"
-    def _run(args):
-        return subprocess.run(["git", "-C", ws] + args, capture_output=True, text=True, timeout=5, env=env)
     try:
-        branch = _run(["rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
-        log_out = _run(["log", "-1", "--format=%h|%s|%at"]).stdout.strip()
+        branch = _git_branch(ws)
+        log_out = _git_run(ws, ["log", "-1", "--format=%h|%s|%at"]).stdout.strip()
         parts = log_out.split("|", 2)
         commit = {"hash": parts[0], "subject": parts[1], "ts": int(parts[2])} if len(parts) == 3 else {"hash": "", "subject": "", "ts": 0}
-        porcelain = _run(["status", "--porcelain", "--untracked-files=no"]).stdout
+        porcelain = _git_run(ws, ["status", "--porcelain", "--untracked-files=no"]).stdout
         dirty = len(porcelain.strip()) > 0
         changed = len([l for l in porcelain.strip().splitlines() if l]) if dirty else 0
         ahead, behind = 0, 0
         try:
-            ab = _run(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]).stdout.strip()
+            ab = _git_run(ws, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]).stdout.strip()
             if ab:
                 ab_parts = ab.split()
                 behind, ahead = int(ab_parts[0]), int(ab_parts[1])
@@ -631,6 +635,47 @@ def git_status():
         return {"repos": [{"path": ws, "branch": branch, "commit": commit, "dirty": dirty, "changedFiles": changed, "ahead": ahead, "behind": behind}]}
     except Exception:
         return {"repos": []}
+def git_pull():
+    ws = get_workspace()
+    if not ws or not os.path.isdir(os.path.join(ws, ".git")):
+        return {"success": False, "output": "Workspace not found or not a git repo", "branch": ""}
+    try:
+        r = _git_run(ws, ["pull", "--rebase"], timeout=30)
+        branch = _git_branch(ws)
+        output = (r.stdout + r.stderr).strip()
+        return {"success": r.returncode == 0, "output": output, "branch": branch}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "output": "git pull timed out after 30s", "branch": ""}
+    except Exception as e:
+        return {"success": False, "output": str(e), "branch": ""}
+def git_commit_push(message="chore: sync changes"):
+    ws = get_workspace()
+    if not ws or not os.path.isdir(os.path.join(ws, ".git")):
+        return {"success": False, "output": "Workspace not found or not a git repo", "committed": False, "pushed": False}
+    output_parts = []
+    try:
+        add_r = _git_run(ws, ["add", "-A"], timeout=10)
+        output_parts.append(add_r.stdout + add_r.stderr)
+        if add_r.returncode != 0:
+            return {"success": False, "output": "git add failed: " + (add_r.stdout + add_r.stderr).strip(), "committed": False, "pushed": False}
+        status_r = _git_run(ws, ["status", "--porcelain"])
+        if not status_r.stdout.strip():
+            return {"success": True, "output": "Nothing to commit", "committed": False, "pushed": False}
+        commit_r = _git_run(ws, ["commit", "-m", message], timeout=10)
+        output_parts.append(commit_r.stdout + commit_r.stderr)
+        if commit_r.returncode != 0:
+            return {"success": False, "output": "git commit failed: " + (commit_r.stdout + commit_r.stderr).strip(), "committed": False, "pushed": False}
+        push_r = _git_run(ws, ["push"], timeout=30)
+        output_parts.append(push_r.stdout + push_r.stderr)
+        combined = "\n".join(p.strip() for p in output_parts if p.strip())
+        if push_r.returncode != 0:
+            return {"success": False, "output": "git push failed: " + combined, "committed": True, "pushed": False}
+        return {"success": True, "output": combined, "committed": True, "pushed": True}
+    except subprocess.TimeoutExpired:
+        combined = "\n".join(p.strip() for p in output_parts if p.strip())
+        return {"success": False, "output": combined + "\nOperation timed out", "committed": False, "pushed": False}
+    except Exception as e:
+        return {"success": False, "output": str(e), "committed": False, "pushed": False}
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/skills":
@@ -640,15 +685,20 @@ class H(http.server.BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "not found"})
     def do_POST(self):
+        l = int(self.headers.get("Content-Length", 0))
+        b = json.loads(self.rfile.read(l)) if l else {}
         if self.path == "/api/publish-skills":
-            l = int(self.headers.get("Content-Length", 0))
-            b = json.loads(self.rfile.read(l)) if l else {}
             rid = b.get("roomId")
             if not rid:
                 self._json(400, {"error": "roomId required"})
                 return
             c, m = publish_skills(rid)
             self._json(c, {"status": m})
+        elif self.path == "/api/git-pull":
+            self._json(200, git_pull())
+        elif self.path == "/api/git-commit-push":
+            msg = b.get("message", "chore: sync changes")
+            self._json(200, git_commit_push(msg))
         else:
             self._json(404, {"error": "not found"})
     def _json(self, code, data):
