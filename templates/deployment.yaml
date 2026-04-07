@@ -513,7 +513,7 @@ spec:
               # Written to file to avoid YAML parsing issues with inline Python.
               base64 -d > /tmp/skills-api.py << 'B64'
               {{- $script := `
-import http.server, json, os, re, urllib.request, urllib.error, ssl, glob
+import http.server, json, os, re, subprocess, urllib.request, urllib.error, ssl, glob
 SKILLS_DIR = "/root/.openclaw/skills"
 CONFIG_PATH = "/root/.openclaw/openclaw.json"
 def get_workspace():
@@ -604,10 +604,39 @@ def publish_skills(room_id):
         return 200, "ok"
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
+def git_status():
+    ws = get_workspace()
+    if not ws or not os.path.isdir(os.path.join(ws, ".git")):
+        return {"repos": []}
+    env = os.environ.copy()
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    def _run(args):
+        return subprocess.run(["git", "-C", ws] + args, capture_output=True, text=True, timeout=5, env=env)
+    try:
+        branch = _run(["rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
+        log_out = _run(["log", "-1", "--format=%h|%s|%at"]).stdout.strip()
+        parts = log_out.split("|", 2)
+        commit = {"hash": parts[0], "subject": parts[1], "ts": int(parts[2])} if len(parts) == 3 else {"hash": "", "subject": "", "ts": 0}
+        porcelain = _run(["status", "--porcelain", "--untracked-files=no"]).stdout
+        dirty = len(porcelain.strip()) > 0
+        changed = len([l for l in porcelain.strip().splitlines() if l]) if dirty else 0
+        ahead, behind = 0, 0
+        try:
+            ab = _run(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]).stdout.strip()
+            if ab:
+                ab_parts = ab.split()
+                behind, ahead = int(ab_parts[0]), int(ab_parts[1])
+        except Exception:
+            pass
+        return {"repos": [{"path": ws, "branch": branch, "commit": commit, "dirty": dirty, "changedFiles": changed, "ahead": ahead, "behind": behind}]}
+    except Exception:
+        return {"repos": []}
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/skills":
             self._json(200, list_skills())
+        elif self.path == "/api/git-status":
+            self._json(200, git_status())
         else:
             self._json(404, {"error": "not found"})
     def do_POST(self):
