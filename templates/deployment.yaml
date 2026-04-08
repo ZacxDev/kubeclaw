@@ -515,7 +515,7 @@ spec:
               # Written to file to avoid YAML parsing issues with inline Python.
               base64 -d > /tmp/skills-api.py << 'B64'
               {{- $script := `
-import http.server, json, os, re, subprocess, urllib.request, urllib.error, ssl, glob
+import http.server, json, os, re, subprocess, urllib.request, urllib.error, ssl, glob, fnmatch
 SKILLS_DIR = "/root/.openclaw/skills"
 CONFIG_PATH = "/root/.openclaw/openclaw.json"
 def get_workspace():
@@ -528,6 +528,7 @@ _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
 UA = "SkillsAPI/1.0"
+UNSAFE_PATTERNS = [".env", ".env.*", "*.key", "*.pem", "credentials*", "*.secret", "secrets.*", "node_modules/*", "__pycache__/*"]
 def read_config():
     try:
         with open(CONFIG_PATH) as f:
@@ -650,40 +651,127 @@ def git_pull():
         return {"success": False, "output": "git pull timed out after 30s", "branch": ""}
     except Exception as e:
         return {"success": False, "output": str(e), "branch": ""}
+def _filter_safe_files(ws):
+    r = _git_run(ws, ["status", "--porcelain", "--untracked-files=normal"])
+    safe, blocked = [], []
+    for line in r.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        fpath = line[3:]
+        if " -> " in fpath:
+            fpath = fpath.split(" -> ", 1)[1]
+        fpath = fpath.strip().strip('"')
+        is_unsafe = False
+        basename = os.path.basename(fpath)
+        for pat in UNSAFE_PATTERNS:
+            if fnmatch.fnmatch(basename, pat) or fnmatch.fnmatch(fpath, pat):
+                is_unsafe = True
+                break
+        if is_unsafe:
+            blocked.append(fpath)
+        else:
+            safe.append(fpath)
+    return safe, blocked
+def _pre_commit_checks(ws, files):
+    warnings = []
+    secret_re = re.compile(r'(PRIVATE KEY|api[_-]?key|api[_-]?secret|password\s*=|token\s*=|AWS_SECRET|BEGIN RSA)', re.IGNORECASE)
+    for f in files:
+        full = os.path.join(ws, f)
+        try:
+            sz = os.path.getsize(full)
+            if sz > 10 * 1024 * 1024:
+                warnings.append({"file": f, "type": "large_file", "detail": f"{sz / 1024 / 1024:.1f} MB"})
+        except (OSError, IOError):
+            continue
+        try:
+            with open(full, "rb") as fh:
+                head = fh.read(1000)
+            if b"\x00" in head[:512]:
+                continue
+            text = head.decode("utf-8", errors="ignore")
+            m = secret_re.search(text)
+            if m:
+                warnings.append({"file": f, "type": "secret_pattern", "detail": m.group(0)})
+        except (OSError, IOError):
+            pass
+        try:
+            with open(full, "rb") as fh:
+                chunk = fh.read(50 * 1024)
+            text = chunk.decode("utf-8", errors="ignore")
+            if "<<<<<<<" in text or ">>>>>>>" in text:
+                warnings.append({"file": f, "type": "conflict_markers", "detail": "merge conflict markers"})
+        except (OSError, IOError):
+            pass
+    return warnings
+def git_diff():
+    ws = get_workspace()
+    if not ws or not os.path.isdir(os.path.join(ws, ".git")):
+        return {"success": False, "diff": "", "truncated": False}
+    try:
+        r = _git_run(ws, ["diff", "HEAD"], timeout=5)
+        diff_text = r.stdout
+        truncated = len(diff_text) > 4000
+        if truncated:
+            diff_text = diff_text[:4000]
+        return {"success": True, "diff": diff_text, "truncated": truncated}
+    except Exception:
+        return {"success": False, "diff": "", "truncated": False}
+def git_dry_run():
+    ws = get_workspace()
+    if not ws or not os.path.isdir(os.path.join(ws, ".git")):
+        return {"success": False, "files": [], "blocked": [], "warnings": [], "diff_stat": "", "branch": ""}
+    try:
+        safe, blocked = _filter_safe_files(ws)
+        warnings = _pre_commit_checks(ws, safe)
+        stat_r = _git_run(ws, ["diff", "--stat", "HEAD"])
+        branch = _git_branch(ws)
+        return {"success": True, "files": safe, "blocked": blocked, "warnings": warnings, "diff_stat": stat_r.stdout.strip(), "branch": branch}
+    except Exception as e:
+        return {"success": False, "files": [], "blocked": [], "warnings": [], "diff_stat": "", "branch": ""}
 def git_commit_push(message="chore: sync changes"):
     ws = get_workspace()
     if not ws or not os.path.isdir(os.path.join(ws, ".git")):
-        return {"success": False, "output": "Workspace not found or not a git repo", "committed": False, "pushed": False}
+        return {"success": False, "output": "Workspace not found or not a git repo", "committed": False, "pushed": False, "blocked": [], "warnings": []}
     output_parts = []
     try:
-        add_r = _git_run(ws, ["add", "-A"], timeout=10)
-        output_parts.append(add_r.stdout + add_r.stderr)
-        if add_r.returncode != 0:
-            return {"success": False, "output": "git add failed: " + (add_r.stdout + add_r.stderr).strip(), "committed": False, "pushed": False}
+        safe_files, blocked_files = _filter_safe_files(ws)
+        if not safe_files and not blocked_files:
+            return {"success": True, "output": "Nothing to commit", "committed": False, "pushed": False, "blocked": [], "warnings": []}
+        if not safe_files and blocked_files:
+            return {"success": True, "output": "All changed files are blocked by safety filters", "committed": False, "pushed": False, "blocked": blocked_files, "warnings": []}
+        warnings = _pre_commit_checks(ws, safe_files)
+        for i in range(0, len(safe_files), 50):
+            batch = safe_files[i:i+50]
+            add_r = _git_run(ws, ["add", "--"] + batch, timeout=10)
+            output_parts.append(add_r.stdout + add_r.stderr)
+            if add_r.returncode != 0:
+                return {"success": False, "output": "git add failed: " + (add_r.stdout + add_r.stderr).strip(), "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
         status_r = _git_run(ws, ["status", "--porcelain"])
         if not status_r.stdout.strip():
-            return {"success": True, "output": "Nothing to commit", "committed": False, "pushed": False}
+            return {"success": True, "output": "Nothing to commit", "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
         commit_r = _git_run(ws, ["commit", "-m", message], timeout=10)
         output_parts.append(commit_r.stdout + commit_r.stderr)
         if commit_r.returncode != 0:
-            return {"success": False, "output": "git commit failed: " + (commit_r.stdout + commit_r.stderr).strip(), "committed": False, "pushed": False}
+            return {"success": False, "output": "git commit failed: " + (commit_r.stdout + commit_r.stderr).strip(), "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
         push_r = _git_run(ws, ["push"], timeout=30)
         output_parts.append(push_r.stdout + push_r.stderr)
         combined = "\n".join(p.strip() for p in output_parts if p.strip())
         if push_r.returncode != 0:
-            return {"success": False, "output": "git push failed: " + combined, "committed": True, "pushed": False}
-        return {"success": True, "output": combined, "committed": True, "pushed": True}
+            return {"success": False, "output": "git push failed: " + combined, "committed": True, "pushed": False, "blocked": blocked_files, "warnings": warnings}
+        return {"success": True, "output": combined, "committed": True, "pushed": True, "blocked": blocked_files, "warnings": warnings}
     except subprocess.TimeoutExpired:
         combined = "\n".join(p.strip() for p in output_parts if p.strip())
-        return {"success": False, "output": combined + "\nOperation timed out", "committed": False, "pushed": False}
+        return {"success": False, "output": combined + "\nOperation timed out", "committed": False, "pushed": False, "blocked": [], "warnings": []}
     except Exception as e:
-        return {"success": False, "output": str(e), "committed": False, "pushed": False}
+        return {"success": False, "output": str(e), "committed": False, "pushed": False, "blocked": [], "warnings": []}
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/skills":
             self._json(200, list_skills())
         elif self.path == "/api/git-status":
             self._json(200, git_status())
+        elif self.path == "/api/git-diff":
+            self._json(200, git_diff())
         else:
             self._json(404, {"error": "not found"})
     def do_POST(self):
@@ -701,6 +789,8 @@ class H(http.server.BaseHTTPRequestHandler):
         elif self.path == "/api/git-commit-push":
             msg = b.get("message", "chore: sync changes")
             self._json(200, git_commit_push(msg))
+        elif self.path == "/api/git-dry-run":
+            self._json(200, git_dry_run())
         else:
             self._json(404, {"error": "not found"})
     def _json(self, code, data):
