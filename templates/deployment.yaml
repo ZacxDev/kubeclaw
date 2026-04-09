@@ -221,7 +221,11 @@ spec:
               type = s3
               provider = {{ $rcloneProvider }}
               {{- if .Values.snapshots.endpoint }}
-              endpoint = {{ .Values.snapshots.endpoint }}
+              {{- $ep := .Values.snapshots.endpoint }}
+              {{- if and (not (hasPrefix "http://" $ep)) (not (hasPrefix "https://" $ep)) }}
+              {{- $ep = printf "http://%s" $ep }}
+              {{- end }}
+              endpoint = {{ $ep }}
               {{- end }}
               region = {{ .Values.snapshots.region | default "us-east-1" }}
               env_auth = true
