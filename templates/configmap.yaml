@@ -120,7 +120,16 @@ data:
             "wakeMode": "now",
             "name": {{ include "kubeclaw.displayName" . | quote }},
             "sessionKey": "hook:element:{{`{{timestamp}}`}}",
-            "messageTemplate": {{ printf "FIRST: Read all SKILL.md files in /root/.openclaw/skills/ for your capabilities.\n\n{{instruction}}\n\n{{#if elementRef}}Element reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}{{/if}}" | quote }},
+            {{- $skillPaths := list }}
+            {{- range $name, $_ := .Values.skills }}
+            {{- $skillName := trimSuffix ".md" $name }}
+            {{- $skillPaths = append $skillPaths (printf "/root/.openclaw/skills/%s/SKILL.md" $skillName) }}
+            {{- end }}
+            {{- if $skillPaths }}
+            "messageTemplate": {{ printf "FIRST: Read these skill files for your capabilities: %s\n\n{{instruction}}\n\n{{#if elementRef}}Element reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}{{/if}}" (join ", " $skillPaths) | quote }},
+            {{- else }}
+            "messageTemplate": {{ printf "{{instruction}}\n\n{{#if elementRef}}Element reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}{{/if}}" | quote }},
+            {{- end }}
             "deliver": false
           }
           {{- end }}
