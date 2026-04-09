@@ -120,7 +120,7 @@ data:
             "wakeMode": "now",
             "name": {{ include "kubeclaw.displayName" . | quote }},
             "sessionKey": "hook:element:{{`{{timestamp}}`}}",
-            "messageTemplate": {{ printf "FIRST: Read /root/.openclaw/skills/%s.md for project context.\n\nElement reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}\n\n**Instruction:** {{instruction}}" (include "kubeclaw.agentId" .) | quote }},
+            "messageTemplate": {{ printf "FIRST: Read all SKILL.md files in /root/.openclaw/skills/ for your capabilities.\n\n{{instruction}}\n\n{{#if elementRef}}Element reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}{{/if}}" | quote }},
             "deliver": false
           }
           {{- end }}
