@@ -732,6 +732,24 @@ def git_dry_run():
         return {"success": True, "files": safe, "blocked": blocked, "warnings": warnings, "diff_stat": stat_r.stdout.strip(), "branch": branch}
     except Exception as e:
         return {"success": False, "files": [], "blocked": [], "warnings": [], "diff_stat": "", "branch": ""}
+def _git_ahead_count(ws):
+    try:
+        r = _git_run(ws, ["rev-list", "--count", "@{upstream}..HEAD"], timeout=5)
+        return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else 0
+    except Exception:
+        return 0
+def _push_existing_commits(ws, blocked_files, warnings, reason):
+    ahead = _git_ahead_count(ws)
+    if ahead == 0:
+        return {"success": True, "output": reason, "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
+    try:
+        push_r = _git_run(ws, ["push"], timeout=30)
+        push_out = (push_r.stdout + push_r.stderr).strip()
+        if push_r.returncode != 0:
+            return {"success": False, "output": f"{reason}; push of {ahead} existing commit(s) failed: {push_out}", "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
+        return {"success": True, "output": f"{reason}; pushed {ahead} existing commit(s): {push_out}", "committed": False, "pushed": True, "blocked": blocked_files, "warnings": warnings}
+    except Exception as e:
+        return {"success": False, "output": f"{reason}; push failed: {e}", "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
 def git_commit_push(message="chore: sync changes"):
     ws = get_workspace()
     if not ws or not os.path.isdir(os.path.join(ws, ".git")):
@@ -740,9 +758,9 @@ def git_commit_push(message="chore: sync changes"):
     try:
         safe_files, blocked_files = _filter_safe_files(ws)
         if not safe_files and not blocked_files:
-            return {"success": True, "output": "Nothing to commit", "committed": False, "pushed": False, "blocked": [], "warnings": []}
+            return _push_existing_commits(ws, [], [], "Nothing to commit")
         if not safe_files and blocked_files:
-            return {"success": True, "output": "All changed files are blocked by safety filters", "committed": False, "pushed": False, "blocked": blocked_files, "warnings": []}
+            return _push_existing_commits(ws, blocked_files, [], "All changed files are blocked by safety filters")
         warnings = _pre_commit_checks(ws, safe_files)
         for i in range(0, len(safe_files), 50):
             batch = safe_files[i:i+50]
@@ -752,7 +770,7 @@ def git_commit_push(message="chore: sync changes"):
                 return {"success": False, "output": "git add failed: " + (add_r.stdout + add_r.stderr).strip(), "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
         status_r = _git_run(ws, ["status", "--porcelain"])
         if not status_r.stdout.strip():
-            return {"success": True, "output": "Nothing to commit", "committed": False, "pushed": False, "blocked": blocked_files, "warnings": warnings}
+            return _push_existing_commits(ws, blocked_files, warnings, "Nothing to commit")
         commit_r = _git_run(ws, ["commit", "-m", message], timeout=10)
         output_parts.append(commit_r.stdout + commit_r.stderr)
         if commit_r.returncode != 0:
