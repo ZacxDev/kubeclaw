@@ -30,6 +30,23 @@ git:
   #   path: "/data/repos/repo"
   #   branch: "main"
 
+  # -- Background auto-pull loop for workspace repos.
+  # Keeps repos in sync with their remote branches without requiring
+  # /git pull from Matrix or a pod restart. Safe by design:
+  #   - Skips entirely when the working tree is dirty (agent WIP
+  #     or untracked files present).
+  #   - Only pulls when origin has actually advanced (fetch-then-compare).
+  #   - Uses --rebase --autostash on pull (defensive; dirty-skip
+  #     already filters WIP).
+  #   - Logs only on actual state changes — silent on no-op cycles.
+  autoPull:
+    # -- Enable the background git auto-pull loop.
+    enabled: true
+    # -- Interval between auto-pull cycles, in seconds.
+    # 300s (5 min) is a reasonable default — fast enough to pick up
+    # fresh skill/prompt updates, slow enough to avoid GitHub API pressure.
+    intervalSeconds: 300
+
 # -- Agent configuration for openclaw.json
 agent:
   # -- Agent ID. Defaults to agentName if empty.
