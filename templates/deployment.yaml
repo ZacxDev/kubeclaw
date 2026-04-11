@@ -108,6 +108,12 @@ spec:
               if [ -f /config/repos.json ]; then
                 (
                   GIT_SYNC_INTERVAL={{ .Values.git.autoPull.intervalSeconds | default 300 }}
+                  # Log via /proc/1/fd/{1,2} — backgrounded subshells spawned from
+                  # the init script inherit different stdout pipes than PID 1, so
+                  # plain `echo` does NOT reach `kubectl logs`. Writing directly to
+                  # PID 1's fd descriptors bypasses the orphan-pipe issue.
+                  _log()  { echo "[$(date -Iseconds)] git-sync: $*" > /proc/1/fd/1; }
+                  _warn() { echo "[$(date -Iseconds)] git-sync: $*" > /proc/1/fd/2; }
                   sleep 60  # initial delay — let gateway start, avoid thundering-herd
                   while true; do
                     sleep "$GIT_SYNC_INTERVAL"
@@ -125,7 +131,7 @@ spec:
 
                       # Fetch first; on failure log and skip this repo
                       if ! git fetch --quiet origin "$REPO_BRANCH" 2>/dev/null; then
-                        echo "[$(date -Iseconds)] git-sync: fetch failed for $REPO_PATH" >&2
+                        _warn "fetch failed for $REPO_PATH"
                         continue
                       fi
 
@@ -135,9 +141,9 @@ spec:
                       [ "$LOCAL" = "$REMOTE" ] && continue
 
                       if git pull --rebase --autostash --quiet origin "$REPO_BRANCH" 2>/dev/null; then
-                        echo "[$(date -Iseconds)] git-sync: pulled $REPO_PATH (${LOCAL:0:8} → ${REMOTE:0:8})"
+                        _log "pulled $REPO_PATH (${LOCAL:0:8} -> ${REMOTE:0:8})"
                       else
-                        echo "[$(date -Iseconds)] git-sync: pull failed for $REPO_PATH (conflict?)" >&2
+                        _warn "pull failed for $REPO_PATH (conflict?)"
                       fi
                     done
                   done
