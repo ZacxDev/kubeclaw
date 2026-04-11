@@ -860,6 +860,10 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
             - name: PORTAL_URL
               value: {{ .Values.channels.email.portalUrl | quote }}
             {{- end }}
+            - name: CLANK_TASK_API_URL
+              value: "http://clank-resolver-api.clank-resolver.svc.cluster.local:18800"
+            - name: CLANK_AGENT_ID
+              value: {{ include "kubeclaw.agentId" . | quote }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -895,6 +899,10 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
               mountPath: /config/skills
               readOnly: true
             {{- end }}
+            - name: clank-task-cli
+              mountPath: /usr/local/bin/clank-task
+              subPath: clank-task
+              readOnly: true
             {{- if .Values.workspaceFiles }}
             - name: workspace
               mountPath: /config/workspace
@@ -973,6 +981,10 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
           configMap:
             name: {{ include "kubeclaw.fullname" . }}-skills
         {{- end }}
+        - name: clank-task-cli
+          configMap:
+            name: {{ include "kubeclaw.fullname" . }}-clank-task-cli
+            defaultMode: 0755
         {{- if .Values.workspaceFiles }}
         - name: workspace
           configMap:

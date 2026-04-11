@@ -1,0 +1,524 @@
+#!/usr/bin/env python3
+"""
+clank-task — CLI for interacting with the clank-resolver Task HTTP API.
+
+Stdlib-only. Runs inside every OpenClaw agent devpod. Reads auth and
+routing from env vars CLANK_TASK_API_TOKEN / CLANK_TASK_API_URL /
+CLANK_AGENT_ID, all overridable via flags.
+
+Exit codes:
+  0 — success
+  1 — API error (4xx/5xx response from server, or version conflict)
+  2 — usage / client error (bad args, missing env, stale version)
+  3 — network / transport error
+"""
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DEFAULT_URL = "http://clank-resolver-api.clank-resolver.svc.cluster.local:18800"
+USER_AGENT = "ClankTaskCLI/1.0"
+
+
+# ---------------------------------------------------------------------------
+# HTTP helpers
+# ---------------------------------------------------------------------------
+
+
+class ApiError(Exception):
+    def __init__(self, status, body, parsed=None):
+        self.status = status
+        self.body = body
+        self.parsed = parsed
+        super().__init__(f"HTTP {status}: {body}")
+
+
+class NetworkError(Exception):
+    pass
+
+
+def _request(method, base_url, path, token, body=None, query=None):
+    url = base_url.rstrip("/") + path
+    if query:
+        # Filter out None values
+        clean = {k: v for k, v in query.items() if v is not None}
+        if clean:
+            url = url + "?" + urllib.parse.urlencode(clean)
+
+    data = None
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+    }
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                return json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                return {"_raw": raw}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        parsed = None
+        try:
+            parsed = json.loads(raw) if raw else None
+        except json.JSONDecodeError:
+            parsed = None
+        raise ApiError(e.code, raw, parsed)
+    except urllib.error.URLError as e:
+        raise NetworkError(f"network error talking to {url}: {e.reason}")
+    except (TimeoutError, OSError) as e:
+        raise NetworkError(f"transport error talking to {url}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Output formatting
+# ---------------------------------------------------------------------------
+
+
+def _shorten(text, limit=60):
+    if text is None:
+        return ""
+    text = str(text).replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _fmt_task_line(task):
+    tid = task.get("id", "?")
+    status = task.get("status", "?")
+    prio = task.get("priority", "")
+    assignee = task.get("assigneeAgentId") or task.get("assignee") or "-"
+    version = task.get("version", "?")
+    title = _shorten(task.get("title", ""), 50)
+    return f"  {tid:<14} {status:<11} {prio:<8} {assignee:<16} v{version:<3} {title}"
+
+
+def print_task_list(tasks):
+    if not tasks:
+        print("(no tasks)")
+        return
+    header = f"  {'ID':<14} {'STATUS':<11} {'PRIORITY':<8} {'ASSIGNEE':<16} {'VER':<4} TITLE"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    for t in tasks:
+        print(_fmt_task_line(t))
+
+
+def print_task_detail(task):
+    if not task:
+        print("(no task)")
+        return
+    fields = [
+        ("ID", task.get("id")),
+        ("Title", task.get("title")),
+        ("Status", task.get("status")),
+        ("Priority", task.get("priority")),
+        ("Assignee", task.get("assigneeAgentId") or task.get("assignee")),
+        ("Creator", task.get("creatorAgentId") or task.get("creator")),
+        ("Version", task.get("version")),
+        ("Created", task.get("createdAt") or task.get("created")),
+        ("Updated", task.get("updatedAt") or task.get("updated")),
+    ]
+    width = max(len(k) for k, _ in fields)
+    for k, v in fields:
+        if v is None or v == "":
+            continue
+        print(f"{k.ljust(width)} : {v}")
+
+    instructions = task.get("instructions") or task.get("description")
+    if instructions:
+        print()
+        print("Instructions:")
+        for line in str(instructions).splitlines() or [""]:
+            print("  " + line)
+
+    progress = task.get("progress") or task.get("progressNotes")
+    if progress:
+        print()
+        print("Progress:")
+        if isinstance(progress, list):
+            for entry in progress:
+                if isinstance(entry, dict):
+                    ts = entry.get("ts") or entry.get("timestamp") or ""
+                    note = entry.get("note") or entry.get("text") or ""
+                    print(f"  [{ts}] {note}")
+                else:
+                    print(f"  {entry}")
+        else:
+            for line in str(progress).splitlines():
+                print("  " + line)
+
+    summary = task.get("summary")
+    if summary:
+        print()
+        print("Summary:")
+        for line in str(summary).splitlines():
+            print("  " + line)
+
+
+def _unwrap(resp, key):
+    """Pull task/tasks out of a response that may wrap or return bare."""
+    if isinstance(resp, dict) and key in resp:
+        return resp[key]
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Subcommand handlers
+# ---------------------------------------------------------------------------
+
+
+def cmd_show(args, ctx):
+    resp = _request("GET", ctx["url"], f"/api/tasks/{args.id}", ctx["token"])
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        print_task_detail(_unwrap(resp, "task"))
+    return 0
+
+
+def cmd_list(args, ctx):
+    if args.mine:
+        agent_id = ctx["agent_id"]
+        if not agent_id:
+            print("error: --mine requires CLANK_AGENT_ID to be set", file=sys.stderr)
+            return 2
+        resp = _request(
+            "GET",
+            ctx["url"],
+            "/api/my-tasks",
+            ctx["token"],
+            query={"agentId": agent_id},
+        )
+    else:
+        query = {}
+        if args.status:
+            query["status"] = args.status
+        if args.agent:
+            query["assignee"] = args.agent
+        resp = _request("GET", ctx["url"], "/api/tasks", ctx["token"], query=query)
+
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        print_task_list(_unwrap(resp, "tasks") or [])
+    return 0
+
+
+def cmd_my_tasks(args, ctx):
+    agent_id = ctx["agent_id"]
+    if not agent_id:
+        print(
+            "error: my-tasks requires CLANK_AGENT_ID (env) or an agent override",
+            file=sys.stderr,
+        )
+        return 2
+    query = {"agentId": agent_id}
+    if args.include_completed:
+        query["includeCompleted"] = "true"
+    if args.limit:
+        query["limit"] = str(args.limit)
+    resp = _request("GET", ctx["url"], "/api/my-tasks", ctx["token"], query=query)
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        print_task_list(_unwrap(resp, "tasks") or [])
+    return 0
+
+
+def cmd_search(args, ctx):
+    query_text = " ".join(args.query).strip()
+    if not query_text:
+        print("error: search query is required", file=sys.stderr)
+        return 2
+    resp = _request(
+        "GET",
+        ctx["url"],
+        "/api/tasks/search",
+        ctx["token"],
+        query={"q": query_text},
+    )
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        print_task_list(_unwrap(resp, "tasks") or [])
+    return 0
+
+
+def cmd_accept(args, ctx):
+    body = {}
+    if args.version is not None:
+        body["version"] = args.version
+    if ctx["agent_id"]:
+        body["agentId"] = ctx["agent_id"]
+    resp = _request(
+        "POST", ctx["url"], f"/api/tasks/{args.id}/accept", ctx["token"], body=body
+    )
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        task = _unwrap(resp, "task")
+        print(f"accepted task {args.id}")
+        print_task_detail(task)
+    return 0
+
+
+def cmd_progress(args, ctx):
+    note = " ".join(args.note).strip()
+    if not note:
+        print("error: progress note is required", file=sys.stderr)
+        return 2
+    body = {"note": note}
+    if args.version is not None:
+        body["version"] = args.version
+    resp = _request(
+        "POST",
+        ctx["url"],
+        f"/api/tasks/{args.id}/progress",
+        ctx["token"],
+        body=body,
+    )
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        print(f"progress appended to {args.id}: {_shorten(note, 80)}")
+        task = _unwrap(resp, "task")
+        if task:
+            v = task.get("version")
+            if v is not None:
+                print(f"(task now at version {v})")
+    return 0
+
+
+def cmd_complete(args, ctx):
+    summary = " ".join(args.summary).strip() if args.summary else ""
+    body = {}
+    if summary:
+        body["summary"] = summary
+    if args.version is not None:
+        body["version"] = args.version
+    resp = _request(
+        "POST",
+        ctx["url"],
+        f"/api/tasks/{args.id}/complete",
+        ctx["token"],
+        body=body,
+    )
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        print(f"completed task {args.id}")
+        print_task_detail(_unwrap(resp, "task"))
+    return 0
+
+
+def cmd_blocked(args, ctx):
+    reason = " ".join(args.reason).strip()
+    if not reason:
+        print("error: blocked reason is required", file=sys.stderr)
+        return 2
+    body = {"reason": reason}
+    if args.version is not None:
+        body["version"] = args.version
+    resp = _request(
+        "POST",
+        ctx["url"],
+        f"/api/tasks/{args.id}/blocked",
+        ctx["token"],
+        body=body,
+    )
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        print(f"task {args.id} marked blocked: {_shorten(reason, 80)}")
+        print_task_detail(_unwrap(resp, "task"))
+    return 0
+
+
+def cmd_create(args, ctx):
+    title = " ".join(args.title).strip()
+    if not title:
+        print("error: title is required", file=sys.stderr)
+        return 2
+    body = {"title": title}
+    if args.assign:
+        body["assigneeAgentId"] = args.assign
+    if args.priority:
+        body["priority"] = args.priority
+    if args.instructions:
+        body["instructions"] = args.instructions
+    resp = _request("POST", ctx["url"], "/api/tasks", ctx["token"], body=body)
+    if ctx["json"]:
+        print(json.dumps(resp, indent=2))
+    else:
+        task = _unwrap(resp, "task") or {}
+        print(f"created task {task.get('id', '?')}: {_shorten(title, 80)}")
+        print_task_detail(task)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Argparse wiring
+# ---------------------------------------------------------------------------
+
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="clank-task",
+        description="Interact with the clank-resolver Task HTTP API.",
+    )
+    p.add_argument("--json", action="store_true", help="print raw JSON response")
+    p.add_argument("--url", default=None, help="override CLANK_TASK_API_URL")
+    p.add_argument("--token", default=None, help="override CLANK_TASK_API_TOKEN")
+
+    sub = p.add_subparsers(dest="cmd")
+    sub.required = True
+
+    sp = sub.add_parser("show", help="show a single task")
+    sp.add_argument("id")
+    sp.set_defaults(func=cmd_show)
+
+    sp = sub.add_parser("list", help="list tasks (all, or filtered)")
+    sp.add_argument("--mine", action="store_true", help="only tasks assigned to me")
+    sp.add_argument("--status", help="filter by status")
+    sp.add_argument("--agent", help="filter by assignee agent id")
+    sp.set_defaults(func=cmd_list)
+
+    sp = sub.add_parser("my-tasks", help="active tasks assigned to this agent")
+    sp.add_argument(
+        "--include-completed",
+        action="store_true",
+        help="include completed tasks",
+    )
+    sp.add_argument("--limit", type=int, help="maximum results")
+    sp.set_defaults(func=cmd_my_tasks)
+
+    sp = sub.add_parser("search", help="full-text search")
+    sp.add_argument("query", nargs="+")
+    sp.set_defaults(func=cmd_search)
+
+    sp = sub.add_parser("accept", help="claim a task as the current agent")
+    sp.add_argument("id")
+    sp.add_argument("--version", type=int)
+    sp.set_defaults(func=cmd_accept)
+
+    sp = sub.add_parser("progress", help="append a progress note")
+    sp.add_argument("id")
+    sp.add_argument("note", nargs="+")
+    sp.add_argument("--version", type=int)
+    sp.set_defaults(func=cmd_progress)
+
+    sp = sub.add_parser("complete", help="mark a task done")
+    sp.add_argument("id")
+    sp.add_argument("summary", nargs="*")
+    sp.add_argument("--version", type=int)
+    sp.set_defaults(func=cmd_complete)
+
+    sp = sub.add_parser("blocked", help="mark a task blocked with a reason")
+    sp.add_argument("id")
+    sp.add_argument("reason", nargs="+")
+    sp.add_argument("--version", type=int)
+    sp.set_defaults(func=cmd_blocked)
+
+    sp = sub.add_parser("create", help="create a new task")
+    sp.add_argument("title", nargs="+")
+    sp.add_argument("--assign", help="assignee agent id")
+    sp.add_argument("--priority", help="priority (low|normal|high|urgent)")
+    sp.add_argument("--instructions", help="task instructions / body text")
+    sp.set_defaults(func=cmd_create)
+
+    return p
+
+
+def _format_api_error(err: ApiError, as_json: bool):
+    parsed = err.parsed if isinstance(err.parsed, dict) else None
+    code = parsed.get("error") if parsed else None
+
+    if code == "version_conflict":
+        current = parsed.get("current") if parsed else None
+        current_version = None
+        if isinstance(current, dict):
+            current_version = current.get("version")
+        msg = "task was updated elsewhere"
+        if current_version is not None:
+            msg += f" — current version: {current_version}"
+        if as_json:
+            # User asked for JSON — honor that on stdout, message still on stderr.
+            print(json.dumps(parsed, indent=2))
+            print(msg, file=sys.stderr)
+        else:
+            print(msg, file=sys.stderr)
+            if isinstance(current, dict):
+                print("current task state:", file=sys.stderr)
+                for line in json.dumps(current, indent=2).splitlines():
+                    print("  " + line, file=sys.stderr)
+        return 2
+
+    # Generic API error
+    if parsed:
+        print(f"API error (HTTP {err.status}):", file=sys.stderr)
+        print(json.dumps(parsed, indent=2), file=sys.stderr)
+    else:
+        print(f"API error (HTTP {err.status}): {err.body}", file=sys.stderr)
+    return 1
+
+
+def main(argv=None):
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as e:
+        # argparse uses code 2 for usage errors already
+        return e.code if isinstance(e.code, int) else 2
+
+    url = args.url or os.environ.get("CLANK_TASK_API_URL") or DEFAULT_URL
+    token = args.token or os.environ.get("CLANK_TASK_API_TOKEN")
+    agent_id = os.environ.get("CLANK_AGENT_ID")
+
+    if not token:
+        print(
+            "error: CLANK_TASK_API_TOKEN is not set (and --token not provided)",
+            file=sys.stderr,
+        )
+        return 2
+
+    ctx = {
+        "url": url,
+        "token": token,
+        "agent_id": agent_id,
+        "json": args.json,
+    }
+
+    try:
+        return args.func(args, ctx)
+    except ApiError as e:
+        return _format_api_error(e, args.json)
+    except NetworkError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 3
+    except KeyboardInterrupt:
+        print("interrupted", file=sys.stderr)
+        return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())
