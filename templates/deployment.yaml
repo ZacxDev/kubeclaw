@@ -107,49 +107,63 @@ spec:
               #     does not abort the loop for others.
               if [ -f /config/repos.json ]; then
                 (
-                  # Redirect subshell output to PID 1's stdout/stderr. Backgrounded
-                  # subshells spawned from the init script otherwise end up with an
-                  # orphaned pipe (different inode from /proc/1/fd/1) that no log
-                  # reader consumes, so plain `echo` vanishes into the void.
-                  # This `exec` establishes a persistent handle to the container
-                  # log pipe at subshell start, which all subsequent writes inherit.
-                  exec 1>/proc/1/fd/1 2>/proc/1/fd/2
+                  # --- set -e is INHERITED from the init script and will kill
+                  #     this subshell on any non-zero exit (e.g. a `[ ... ] &&`
+                  #     expression whose final test is false, which happens on
+                  #     every successful pull path). Disable it locally so the
+                  #     loop survives long-running operation.
+                  set +e
+
+                  # --- Log to a file inside the pod. Backgrounded subshells
+                  #     spawned during container init inherit an orphaned pipe
+                  #     for stdout/stderr that is NOT the container log stream,
+                  #     so `echo` from here is invisible to `kubectl logs`.
+                  #     Operators can tail /tmp/git-sync.log via
+                  #       kubectl exec <pod> -- tail -f /tmp/git-sync.log
+                  #     to observe loop behavior. This is a pre-existing quirk
+                  #     of the init script's subshell model (the workspace-sync
+                  #     loop has the same limitation).
+                  LOG_FILE=/tmp/git-sync.log
+                  touch "$LOG_FILE" 2>/dev/null || LOG_FILE=/dev/null
+                  exec >>"$LOG_FILE" 2>&1
+
                   GIT_SYNC_INTERVAL={{ .Values.git.autoPull.intervalSeconds | default 300 }}
+                  echo "[$(date -Iseconds)] git-sync: loop entered (interval: ${GIT_SYNC_INTERVAL}s, log: ${LOG_FILE})"
                   sleep 60  # initial delay — let gateway start, avoid thundering-herd
                   while true; do
                     sleep "$GIT_SYNC_INTERVAL"
-                    for repo in $(jq -r '.[] | @base64' /config/repos.json); do
+                    for repo in $(jq -r '.[] | @base64' /config/repos.json 2>/dev/null); do
                       _jq() { echo "$repo" | base64 -d | jq -r "$1"; }
                       REPO_PATH=$(_jq '.path')
                       REPO_BRANCH=$(_jq '.branch // "main"')
-                      [ -d "$REPO_PATH/.git" ] || continue
-                      cd "$REPO_PATH" || continue
+                      if [ ! -d "$REPO_PATH/.git" ]; then continue; fi
+                      if ! cd "$REPO_PATH" 2>/dev/null; then continue; fi
 
                       # Dirty-skip: any uncommitted changes or untracked files → skip
-                      if [ -n "$(git status --porcelain)" ]; then
+                      if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
                         continue
                       fi
 
                       # Fetch first; on failure log and skip this repo
                       if ! git fetch --quiet origin "$REPO_BRANCH" 2>/dev/null; then
-                        echo "[$(date -Iseconds)] git-sync: fetch failed for $REPO_PATH" >&2
+                        echo "[$(date -Iseconds)] git-sync: fetch failed for $REPO_PATH"
                         continue
                       fi
 
-                      LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
-                      REMOTE=$(git rev-parse "origin/$REPO_BRANCH" 2>/dev/null || echo "")
-                      [ -z "$LOCAL" ] || [ -z "$REMOTE" ] && continue
-                      [ "$LOCAL" = "$REMOTE" ] && continue
+                      LOCAL=$(git rev-parse HEAD 2>/dev/null)
+                      REMOTE=$(git rev-parse "origin/$REPO_BRANCH" 2>/dev/null)
+                      if [ -z "$LOCAL" ] || [ -z "$REMOTE" ]; then continue; fi
+                      if [ "$LOCAL" = "$REMOTE" ]; then continue; fi
 
                       if git pull --rebase --autostash --quiet origin "$REPO_BRANCH" 2>/dev/null; then
                         echo "[$(date -Iseconds)] git-sync: pulled $REPO_PATH (${LOCAL:0:8} -> ${REMOTE:0:8})"
                       else
-                        echo "[$(date -Iseconds)] git-sync: pull failed for $REPO_PATH (conflict?)" >&2
+                        echo "[$(date -Iseconds)] git-sync: pull failed for $REPO_PATH (conflict?)"
                       fi
                     done
                   done
                 ) &
-                echo "[$(date -Iseconds)] Git auto-pull started (interval: {{ .Values.git.autoPull.intervalSeconds | default 300 }}s)"
+                echo "[$(date -Iseconds)] Git auto-pull started (interval: {{ .Values.git.autoPull.intervalSeconds | default 300 }}s, log file: /tmp/git-sync.log)"
               fi
               {{- end }}
 
