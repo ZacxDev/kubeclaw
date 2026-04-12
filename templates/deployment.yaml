@@ -139,8 +139,13 @@ spec:
                       if [ ! -d "$REPO_PATH/.git" ]; then continue; fi
                       if ! cd "$REPO_PATH" 2>/dev/null; then continue; fi
 
-                      # Dirty-skip: any uncommitted changes or untracked files → skip
-                      if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+                      # Dirty-skip: any modifications to TRACKED files → skip.
+                      # Uses `git diff HEAD` instead of `git status --porcelain`
+                      # because devpod workspaces always have untracked runtime
+                      # files (.openclaw/, AGENTS.md, HEARTBEAT.md, etc.) that
+                      # are never committed. Untracked files don't interfere
+                      # with `git pull --rebase` which only touches tracked content.
+                      if ! git diff --quiet HEAD 2>/dev/null; then
                         continue
                       fi
 
