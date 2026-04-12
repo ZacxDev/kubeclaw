@@ -161,7 +161,7 @@ spec:
                       if [ "$LOCAL" = "$REMOTE" ]; then continue; fi
 
                       if git pull --rebase --autostash --quiet origin "$REPO_BRANCH" 2>/dev/null; then
-                        echo "[$(date -Iseconds)] git-sync: pulled $REPO_PATH (${LOCAL:0:8} -> ${REMOTE:0:8})"
+                        echo "[$(date -Iseconds)] git-sync: pulled $REPO_PATH ($LOCAL -> $REMOTE)"
                       else
                         echo "[$(date -Iseconds)] git-sync: pull failed for $REPO_PATH (conflict?)"
                       fi
