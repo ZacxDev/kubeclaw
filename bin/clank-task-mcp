@@ -1,0 +1,438 @@
+#!/usr/bin/env python3
+"""
+clank-task-mcp — MCP stdio server wrapping the clank-resolver Task HTTP API.
+
+Stdlib-only. Runs inside every OpenClaw agent devpod as a registered MCP server.
+Reads auth and routing from env vars CLANK_TASK_API_TOKEN / CLANK_TASK_API_URL /
+CLANK_AGENT_ID.
+
+Protocol: JSON-RPC 2.0 over stdio (newline-delimited JSON).
+Stdout is the MCP channel — all diagnostics go to stderr.
+"""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+DEFAULT_URL = "http://clank-resolver-api.clank-resolver.svc.cluster.local:18800"
+USER_AGENT = "ClankTaskMCP/1.0"
+
+SERVER_INFO = {
+    "name": "clank-task",
+    "version": "1.0.0",
+}
+
+CAPABILITIES = {
+    "tools": {},
+}
+
+# ---------------------------------------------------------------------------
+# HTTP helpers (mirrors clank-task CLI)
+# ---------------------------------------------------------------------------
+
+
+class ApiError(Exception):
+    def __init__(self, status, body, parsed=None):
+        self.status = status
+        self.body = body
+        self.parsed = parsed
+        super().__init__(f"HTTP {status}: {body}")
+
+
+class NetworkError(Exception):
+    pass
+
+
+def _request(method, base_url, path, token, body=None, query=None):
+    url = base_url.rstrip("/") + path
+    if query:
+        clean = {k: v for k, v in query.items() if v is not None}
+        if clean:
+            url = url + "?" + urllib.parse.urlencode(clean)
+
+    data = None
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+    }
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                return json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                return {"_raw": raw}
+    except urllib.error.HTTPError as e:
+        raw = ""
+        try:
+            raw = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        parsed = None
+        try:
+            parsed = json.loads(raw) if raw else None
+        except json.JSONDecodeError:
+            parsed = None
+        raise ApiError(e.code, raw, parsed)
+    except urllib.error.URLError as e:
+        raise NetworkError(f"network error: {e.reason}")
+    except (TimeoutError, OSError) as e:
+        raise NetworkError(f"transport error: {e}")
+
+
+def _unwrap(resp, key):
+    if isinstance(resp, dict) and key in resp:
+        return resp[key]
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+
+def _env():
+    return {
+        "url": os.environ.get("CLANK_TASK_API_URL", DEFAULT_URL),
+        "token": os.environ.get("CLANK_TASK_API_TOKEN", ""),
+        "agent_id": os.environ.get("CLANK_AGENT_ID", ""),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool definitions
+# ---------------------------------------------------------------------------
+
+TOOLS = [
+    {
+        "name": "task_show",
+        "description": "Show details for a single task by ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Task ID"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "task_list",
+        "description": "List tasks, optionally filtered by status and/or assignee agent.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Filter by status (created, assigned, in_progress, blocked, review, completed, cancelled, failed)"},
+                "agent": {"type": "string", "description": "Filter by assignee agent ID"},
+            },
+        },
+    },
+    {
+        "name": "task_my_tasks",
+        "description": "List active tasks assigned to this agent (uses CLANK_AGENT_ID).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_completed": {"type": "boolean", "description": "Include completed tasks"},
+                "limit": {"type": "integer", "description": "Maximum results to return"},
+            },
+        },
+    },
+    {
+        "name": "task_search",
+        "description": "Full-text search across all tasks.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query text"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "task_accept",
+        "description": "Claim/accept a task as the current agent. Sets status to assigned.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Task ID to accept"},
+                "version": {"type": "integer", "description": "Optimistic concurrency version (optional)"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "task_progress",
+        "description": "Append a progress note to a task.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Task ID"},
+                "note": {"type": "string", "description": "Progress note text"},
+                "version": {"type": "integer", "description": "Optimistic concurrency version (optional)"},
+            },
+            "required": ["id", "note"],
+        },
+    },
+    {
+        "name": "task_complete",
+        "description": "Mark a task as completed with an optional summary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Task ID"},
+                "summary": {"type": "string", "description": "Completion summary (optional)"},
+                "version": {"type": "integer", "description": "Optimistic concurrency version (optional)"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "task_blocked",
+        "description": "Mark a task as blocked with a reason.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Task ID"},
+                "reason": {"type": "string", "description": "Reason the task is blocked"},
+                "version": {"type": "integer", "description": "Optimistic concurrency version (optional)"},
+            },
+            "required": ["id", "reason"],
+        },
+    },
+    {
+        "name": "task_create",
+        "description": "Create a new task.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Task title"},
+                "assign": {"type": "string", "description": "Assignee agent ID (optional)"},
+                "priority": {"type": "string", "description": "Priority: low, normal, high, critical"},
+                "instructions": {"type": "string", "description": "Task instructions / body text"},
+            },
+            "required": ["title"],
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Tool handlers
+# ---------------------------------------------------------------------------
+
+def handle_task_show(params, env):
+    task_id = params["id"]
+    resp = _request("GET", env["url"], f"/api/tasks/{task_id}", env["token"])
+    return json.dumps(_unwrap(resp, "task"), indent=2)
+
+
+def handle_task_list(params, env):
+    query = {}
+    if params.get("status"):
+        query["status"] = params["status"]
+    if params.get("agent"):
+        query["assignee"] = params["agent"]
+    resp = _request("GET", env["url"], "/api/tasks", env["token"], query=query)
+    tasks = _unwrap(resp, "tasks") or []
+    return json.dumps(tasks, indent=2)
+
+
+def handle_task_my_tasks(params, env):
+    agent_id = env["agent_id"]
+    if not agent_id:
+        raise ValueError("CLANK_AGENT_ID not set — cannot determine which agent's tasks to show")
+    query = {"agentId": agent_id}
+    if params.get("include_completed"):
+        query["includeCompleted"] = "true"
+    if params.get("limit"):
+        query["limit"] = str(params["limit"])
+    resp = _request("GET", env["url"], "/api/my-tasks", env["token"], query=query)
+    tasks = _unwrap(resp, "tasks") or []
+    return json.dumps(tasks, indent=2)
+
+
+def handle_task_search(params, env):
+    resp = _request("GET", env["url"], "/api/tasks/search", env["token"],
+                     query={"q": params["query"]})
+    tasks = _unwrap(resp, "tasks") or []
+    return json.dumps(tasks, indent=2)
+
+
+def handle_task_accept(params, env):
+    body = {}
+    if params.get("version") is not None:
+        body["version"] = params["version"]
+    if env["agent_id"]:
+        body["agentId"] = env["agent_id"]
+    resp = _request("POST", env["url"], f"/api/tasks/{params['id']}/accept",
+                     env["token"], body=body)
+    task = _unwrap(resp, "task")
+    return f"Accepted task {params['id']}\n\n{json.dumps(task, indent=2)}"
+
+
+def handle_task_progress(params, env):
+    body = {"note": params["note"]}
+    if params.get("version") is not None:
+        body["version"] = params["version"]
+    resp = _request("POST", env["url"], f"/api/tasks/{params['id']}/progress",
+                     env["token"], body=body)
+    task = _unwrap(resp, "task")
+    version_info = f" (version {task.get('version')})" if task and task.get("version") else ""
+    return f"Progress appended to {params['id']}{version_info}: {params['note']}"
+
+
+def handle_task_complete(params, env):
+    body = {}
+    if params.get("summary"):
+        body["summary"] = params["summary"]
+    if params.get("version") is not None:
+        body["version"] = params["version"]
+    resp = _request("POST", env["url"], f"/api/tasks/{params['id']}/complete",
+                     env["token"], body=body)
+    task = _unwrap(resp, "task")
+    return f"Completed task {params['id']}\n\n{json.dumps(task, indent=2)}"
+
+
+def handle_task_blocked(params, env):
+    body = {"reason": params["reason"]}
+    if params.get("version") is not None:
+        body["version"] = params["version"]
+    resp = _request("POST", env["url"], f"/api/tasks/{params['id']}/blocked",
+                     env["token"], body=body)
+    task = _unwrap(resp, "task")
+    return f"Task {params['id']} marked blocked: {params['reason']}\n\n{json.dumps(task, indent=2)}"
+
+
+def handle_task_create(params, env):
+    body = {"title": params["title"]}
+    if params.get("assign"):
+        body["assigneeAgentId"] = params["assign"]
+    if params.get("priority"):
+        body["priority"] = params["priority"]
+    if params.get("instructions"):
+        body["instructions"] = params["instructions"]
+    resp = _request("POST", env["url"], "/api/tasks", env["token"], body=body)
+    task = _unwrap(resp, "task") or {}
+    return f"Created task {task.get('id', '?')}: {params['title']}\n\n{json.dumps(task, indent=2)}"
+
+
+HANDLERS = {
+    "task_show": handle_task_show,
+    "task_list": handle_task_list,
+    "task_my_tasks": handle_task_my_tasks,
+    "task_search": handle_task_search,
+    "task_accept": handle_task_accept,
+    "task_progress": handle_task_progress,
+    "task_complete": handle_task_complete,
+    "task_blocked": handle_task_blocked,
+    "task_create": handle_task_create,
+}
+
+
+# ---------------------------------------------------------------------------
+# JSON-RPC / MCP protocol
+# ---------------------------------------------------------------------------
+
+def _ok(req_id, result):
+    return {"jsonrpc": "2.0", "id": req_id, "result": result}
+
+
+def _error(req_id, code, message):
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+def _tool_result(text, is_error=False):
+    result = {"content": [{"type": "text", "text": text}]}
+    if is_error:
+        result["isError"] = True
+    return result
+
+
+def handle_request(msg):
+    req_id = msg.get("id")
+    method = msg.get("method", "")
+    params = msg.get("params", {})
+
+    if method == "initialize":
+        return _ok(req_id, {
+            "protocolVersion": "2024-11-05",
+            "serverInfo": SERVER_INFO,
+            "capabilities": CAPABILITIES,
+        })
+
+    if method == "notifications/initialized":
+        # Client acknowledgement — no response needed
+        return None
+
+    if method == "tools/list":
+        return _ok(req_id, {"tools": TOOLS})
+
+    if method == "tools/call":
+        tool_name = params.get("name", "")
+        tool_params = params.get("arguments", {})
+        handler = HANDLERS.get(tool_name)
+
+        if not handler:
+            return _ok(req_id, _tool_result(f"Unknown tool: {tool_name}", is_error=True))
+
+        env = _env()
+        if not env["token"]:
+            return _ok(req_id, _tool_result(
+                "CLANK_TASK_API_TOKEN not set", is_error=True))
+
+        try:
+            result_text = handler(tool_params, env)
+            return _ok(req_id, _tool_result(result_text))
+        except ApiError as e:
+            parsed = e.parsed if isinstance(e.parsed, dict) else None
+            if parsed and parsed.get("error") == "version_conflict":
+                current = parsed.get("current", {})
+                msg_text = f"Version conflict — task was updated elsewhere. Current version: {current.get('version', '?')}\n\n{json.dumps(current, indent=2)}"
+                return _ok(req_id, _tool_result(msg_text, is_error=True))
+            detail = json.dumps(parsed, indent=2) if parsed else e.body
+            return _ok(req_id, _tool_result(
+                f"API error (HTTP {e.status}): {detail}", is_error=True))
+        except NetworkError as e:
+            return _ok(req_id, _tool_result(f"Network error: {e}", is_error=True))
+        except (KeyError, ValueError, TypeError) as e:
+            return _ok(req_id, _tool_result(f"Invalid parameters: {e}", is_error=True))
+
+    # Unknown method
+    return _error(req_id, -32601, f"Method not found: {method}")
+
+
+def main():
+    print(f"clank-task-mcp: starting (api={os.environ.get('CLANK_TASK_API_URL', DEFAULT_URL)})",
+          file=sys.stderr)
+
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError as e:
+            resp = _error(None, -32700, f"Parse error: {e}")
+            sys.stdout.write(json.dumps(resp) + "\n")
+            sys.stdout.flush()
+            continue
+
+        resp = handle_request(msg)
+        if resp is not None:
+            sys.stdout.write(json.dumps(resp) + "\n")
+            sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    main()

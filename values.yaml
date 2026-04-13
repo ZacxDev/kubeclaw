@@ -151,6 +151,13 @@ channels:
     # When set, the poller sends emails to the portal instead of directly to the gateway.
     portalUrl: ""
 
+# -- MCP servers registered with OpenClaw.
+# Each server runs as a stdio child process of the agent.
+mcpServers:
+  clankTask:
+    # -- Enable the clank-task MCP server (typed task operations).
+    enabled: true
+
 # -- Tools configuration
 tools:
   web:

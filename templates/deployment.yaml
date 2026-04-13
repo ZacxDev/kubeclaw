@@ -986,6 +986,10 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
               mountPath: /usr/local/bin/clank-task
               subPath: clank-task
               readOnly: true
+            - name: clank-task-mcp
+              mountPath: /usr/local/bin/clank-task-mcp
+              subPath: clank-task-mcp
+              readOnly: true
             {{- if .Values.workspaceFiles }}
             - name: workspace
               mountPath: /config/workspace
@@ -1067,6 +1071,10 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
         - name: clank-task-cli
           configMap:
             name: {{ include "kubeclaw.fullname" . }}-clank-task-cli
+            defaultMode: 0755
+        - name: clank-task-mcp
+          configMap:
+            name: {{ include "kubeclaw.fullname" . }}-clank-task-mcp
             defaultMode: 0755
         {{- if .Values.workspaceFiles }}
         - name: workspace
