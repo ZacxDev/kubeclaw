@@ -83,12 +83,11 @@ data:
         }
       },
       {{- if .Values.mcpServers.clankTask.enabled }}
-      "mcp": {
-        "servers": {
-          "clank-task": {
-            "command": "/usr/local/bin/clank-task-mcp",
-            "args": []
-          }
+      "mcpServers": {
+        "clank-task": {
+          "command": "/usr/local/bin/clank-task-mcp",
+          "args": [],
+          "transport": "stdio"
         }
       },
       {{- end }}
