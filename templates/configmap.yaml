@@ -87,8 +87,7 @@ data:
         "servers": {
           "clank-task": {
             "command": "/usr/local/bin/clank-task-mcp",
-            "args": [],
-            "transport": "stdio"
+            "args": []
           }
         }
       },
