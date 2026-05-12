@@ -205,10 +205,12 @@ hooks:
   # the gateway refuses to start with:
   #   "hooks.allowedSessionKeyPrefixes is required when a hook mapping
   #    sessionKey uses templates"
-  # The defaults below cover the chart's built-in element hook
-  # (`hook:element:`) plus the legacy email hook prefix kept for
-  # portal-side email ingest. Extend when adding custom hook mappings.
+  # AND, when hooks.defaultSessionKey is unset, the gateway additionally
+  # requires the literal string "hook:" in the array. With the literal
+  # "hook:" present, all narrower prefixes ("hook:element:", "hook:email:")
+  # are subsumed; we keep them explicitly for clarity.
   allowedSessionKeyPrefixes:
+    - "hook:"
     - "hook:element:"
     - "hook:email:"
   # -- Hook mappings array. If empty, a default element hook is generated.
