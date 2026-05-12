@@ -100,6 +100,9 @@ data:
           "endpoints": {
             "chatCompletions": {
               "enabled": {{ .Values.gateway.http.endpoints.chatCompletions.enabled }}
+            },
+            "responses": {
+              "enabled": {{ .Values.gateway.http.endpoints.responses.enabled }}
             }
           }
         }

@@ -183,6 +183,11 @@ gateway:
       # Required for ClawSail built-in chat.
       chatCompletions:
         enabled: true
+      # -- Enable OpenAI Responses API POST /v1/responses endpoint.
+      # Supports native structured tool calls (tools + tool_choice + function_call output)
+      # for deterministic workflow state mutations.
+      responses:
+        enabled: true
 
 # -- Commands configuration
 commands:
