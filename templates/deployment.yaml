@@ -1024,7 +1024,7 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
                 command:
                   - /bin/sh
                   - -c
-                  - /usr/local/bin/snapshot-save
+                  - "timeout {{ .Values.snapshots.save.preStopTimeoutSeconds | default 60 }} /usr/local/bin/snapshot-save || true"
           {{- end }}
           startupProbe:
             httpGet:

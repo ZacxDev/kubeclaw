@@ -404,8 +404,14 @@ snapshots:
     schedule: "0 */6 * * *"
     # -- Save a snapshot on pod shutdown (preStop hook)
     onShutdown: true
-    # -- Termination grace period in seconds (must exceed expected snapshot duration)
-    terminationGracePeriodSeconds: 300
+    # -- Hard cap on the preStop snapshot-save invocation. If exceeded, the hook
+    # exits 0 (via `|| true`) so kubelet proceeds to SIGTERM rather than waiting
+    # the full grace period. Should be < terminationGracePeriodSeconds.
+    preStopTimeoutSeconds: 60
+    # -- Termination grace period in seconds. preStopTimeoutSeconds + ~30s for
+    # SIGTERM drain. Old default was 300 (5min) which produced multi-minute
+    # stuck-Terminating windows when rclone hung.
+    terminationGracePeriodSeconds: 90
   restore:
     # -- Restore from latest snapshot on startup if workspace is empty
     onStartup: true
