@@ -35,21 +35,15 @@ data:
         "matrix": {
           "enabled": {{ .Values.channels.matrix.enabled }},
           "homeserver": {{ .Values.channels.matrix.homeserver | quote }},
-          {{- if .Values.channels.matrix.streamMode }}
-          "streamMode": {{ .Values.channels.matrix.streamMode | quote }},
+          {{- if .Values.channels.matrix.streaming }}
+          "streaming": {{ .Values.channels.matrix.streaming | quote }},
           {{- end }}
           "dm": {
             "policy": {{ .Values.channels.matrix.dm.policy | quote }},
             "allowFrom": {{ .Values.channels.matrix.dm.allowFrom | toJson }}
           },
           "groupPolicy": {{ .Values.channels.matrix.groupPolicy | quote }},
-          "autoJoin": {{ .Values.channels.matrix.autoJoin | quote }},
-          {{- if .Values.channels.matrix.typingIndicator }}
-          "typingIndicator": {
-            "enabled": {{ .Values.channels.matrix.typingIndicator.enabled }},
-            "timeout": {{ .Values.channels.matrix.typingIndicator.timeout | default 30000 }}
-          }
-          {{- end }}
+          "autoJoin": {{ .Values.channels.matrix.autoJoin | quote }}
         },
         "telegram": {
           "enabled": {{ .Values.channels.telegram.enabled }}
@@ -59,19 +53,6 @@ data:
           "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},
           "sendReadReceipts": {{ .Values.channels.whatsapp.sendReadReceipts }}
         }
-        {{- if .Values.channels.sms.enabled }},
-        "sms": {
-          "enabled": true,
-          "provider": {{ .Values.channels.sms.provider | quote }},
-          "phoneNumber": {{ .Values.channels.sms.phoneNumber | quote }}
-        }
-        {{- end }}
-        {{- if .Values.channels.email.enabled }},
-        "email": {
-          "enabled": true,
-          "dmPolicy": "open"
-        }
-        {{- end }}
       },
       "tools": {
         "web": {
@@ -83,11 +64,12 @@ data:
         }
       },
       {{- if .Values.mcpServers.clankTask.enabled }}
-      "mcpServers": {
-        "clank-task": {
-          "command": "/usr/local/bin/clank-task-mcp",
-          "args": [],
-          "transport": "stdio"
+      "mcp": {
+        "servers": {
+          "clank-task": {
+            "command": "/usr/local/bin/clank-task-mcp",
+            "args": []
+          }
         }
       },
       {{- end }}
@@ -134,16 +116,6 @@ data:
             "sessionKey": "hook:element:{{`{{timestamp}}`}}",
             "messageTemplate": {{ printf "{{instruction}}\n\n{{#if elementRef}}Element reference:\n```json\n{{{elementRef}}}\n```\n\n**Page URL:** {{pageUrl}}{{/if}}" | quote }},
             "deliver": false
-          }
-          {{- end }}
-          {{- if .Values.channels.email.enabled }},
-          {
-            "match": { "path": "email" },
-            "action": "agent",
-            "wakeMode": "now",
-            "sessionKey": "hook:email:{{`{{from}}`}}",
-            "messageTemplate": "New email received:\nFrom: {{`{{from}}`}}\nSubject: {{`{{subject}}`}}\n\n{{`{{body}}`}}",
-            "deliver": true
           }
           {{- end }}
         ]
