@@ -101,6 +101,7 @@ data:
       },
       "hooks": {
         "enabled": {{ .Values.hooks.enabled }},
+        "allowedSessionKeyPrefixes": {{ .Values.hooks.allowedSessionKeyPrefixes | toJson }},
         "mappings": [
           {{- if .Values.hooks.mappings }}
           {{- range $i, $m := .Values.hooks.mappings }}
