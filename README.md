@@ -133,17 +133,19 @@ For every agent:
 | Namespace | `devpod-{name}` | Isolation |
 | Deployment | `{name}-devpod` | Agent pod with startup script |
 | Service | `{name}-devpod` | ClusterIP on port 18789 |
-| PVC | `{name}-data` | Persistent storage (10Gi default) |
+| PVC | `{name}-data` | Persistent storage (10Gi, opt-in via `persistence.enabled`) |
 | ConfigMap | `{name}-config` | Generated `openclaw.json` + `repos.json` |
 | ConfigMap | `{name}-skills` | Skill markdown files |
+| ConfigMap | `{name}-clank-task-{cli,mcp}` | `clank-task` CLI + MCP stdio server binaries |
 | ServiceAccount | `{name}-devpod` | Pod identity |
 | Role + RoleBinding | `{name}-reader` | Namespace read access |
 
 Optional resources:
 - **ClusterRoleBinding** to cluster-admin (when `rbac.clusterAdmin.enabled: true`)
 - **ClusterRole + ClusterRoleBinding** for orchestrator (when `rbac.orchestrator.enabled: true` and `clusterAdmin` is disabled)
-
-When workflows are defined, adds per-workflow CronJob + shared workflow RBAC.
+- **CronJob** per workflow + shared workflow RBAC (when `workflows` is defined)
+- **CronJob** for email polling (when `channels.email.enabled: true`)
+- **CronJob** for workspace snapshots (when `snapshots.enabled: true`)
 
 ## Values Reference
 
@@ -172,6 +174,8 @@ When workflows are defined, adds per-workflow CronJob + shared workflow RBAC.
 | `git.email` | `agent@devpod.local` | Commit author email |
 | `git.name` | `DevPod Agent` | Commit author name |
 | `git.repos` | `[]` | Repos to clone: `[{url, path, branch}]` |
+| `git.autoPull.enabled` | `true` | Background fetch+pull loop for workspace repos |
+| `git.autoPull.intervalSeconds` | `300` | Interval between auto-pull cycles |
 
 ### Channels
 
@@ -180,6 +184,22 @@ When workflows are defined, adds per-workflow CronJob + shared workflow RBAC.
 | `channels.matrix.enabled` | `true` | Enable Matrix |
 | `channels.matrix.homeserver` | `https://matrix.example.com` | Matrix server URL |
 | `channels.telegram.enabled` | `false` | Enable Telegram |
+| `channels.email.enabled` | `false` | Enable email channel (Mailpit poller CronJob) |
+| `channels.whatsapp.enabled` | `false` | Enable WhatsApp (Baileys, credentials persisted on PVC) |
+| `channels.sms.enabled` | `false` | Enable SMS (Twilio) |
+
+### MCP Servers
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `mcpServers.clankTask.enabled` | `true` | Register `clank-task-mcp` stdio server with OpenClaw for typed task tools |
+
+### Gateway
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `gateway.http.endpoints.chatCompletions.enabled` | `true` | Enable OpenAI-compatible `/v1/chat/completions` |
+| `gateway.http.endpoints.responses.enabled` | `true` | Enable OpenAI Responses `/v1/responses` (structured tool calls) |
 
 ### Skills
 
@@ -207,9 +227,10 @@ When workflows are defined, adds per-workflow CronJob + shared workflow RBAC.
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `persistence.enabled` | `true` | Create PVC |
+| `persistence.enabled` | `false` | Create PVC (opt-in) |
 | `persistence.size` | `10Gi` | Storage size |
 | `persistence.storageClass` | `""` | Storage class (empty = default) |
+| `persistence.existingClaim` | `""` | Use an existing PVC instead of creating one |
 
 ### Resources
 
@@ -217,7 +238,7 @@ When workflows are defined, adds per-workflow CronJob + shared workflow RBAC.
 |-------|---------|-------------|
 | `resources.requests.memory` | `512Mi` | Memory request |
 | `resources.requests.cpu` | `250m` | CPU request |
-| `resources.limits.memory` | `2Gi` | Memory limit |
+| `resources.limits.memory` | `3Gi` | Memory limit |
 | `resources.limits.cpu` | `2000m` | CPU limit |
 
 ### Workflows
@@ -267,7 +288,7 @@ Agents are reachable within the cluster at:
 # Install test plugin
 helm plugin install https://github.com/helm-unittest/helm-unittest.git
 
-# Run tests (90 tests, 12 suites)
+# Run tests (141 tests, 16 suites)
 make test
 
 # Lint

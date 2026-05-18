@@ -6,9 +6,9 @@ Helm chart for deploying OpenClaw AI agent devpods on Kubernetes.
 
 ```
 kubeclaw/
-├── Chart.yaml              # Chart metadata (v0.2.22)
+├── Chart.yaml              # Chart metadata (v0.3.6)
 ├── values.yaml             # All configurable values with defaults
-├── templates/              # Helm templates (24 files)
+├── templates/              # Helm templates (26 files)
 │   ├── _helpers.tpl        # Template helper functions (naming, labels, defaults)
 │   ├── deployment.yaml     # Agent pod (startup script, volumes, probes)
 │   ├── configmap.yaml      # Generated openclaw.json + repos.json
@@ -18,6 +18,8 @@ kubeclaw/
 │   ├── configmap-workspace.yaml     # Workspace files URLs/metadata
 │   ├── configmap-workspace-content.yaml  # Workspace inline content files
 │   ├── configmap-workflow-skills.yaml    # Inline step skills per workflow
+│   ├── configmap-clank-task-cli.yaml     # clank-task CLI binary (from bin/)
+│   ├── configmap-clank-task-mcp.yaml     # clank-task-mcp stdio server binary (from bin/)
 │   ├── cronjob-workflow.yaml        # CronJob per workflow definition
 │   ├── cronjob-snapshot.yaml         # CronJob for scheduled workspace snapshots
 │   ├── cronjob-email-poller.yaml    # CronJob for polling email via Mailpit
@@ -33,6 +35,11 @@ kubeclaw/
 │   ├── role-workflow.yaml           # Workflow exec permission Role
 │   ├── rolebinding-workflow.yaml    # Workflow RoleBinding
 │   └── NOTES.txt            # Post-install output
+├── bin/                     # Binaries shipped to agent pods via ConfigMap
+│   ├── clank-task           # CLI for typed task operations
+│   └── clank-task-mcp       # stdio MCP server (registered with OpenClaw)
+├── plugins/
+│   └── email/               # Email channel plugin (Node.js, index.js + plugin manifest)
 ├── tests/                   # 141 helm-unittest tests (16 files)
 ├── examples/                # Complete deployment examples
 │   ├── standard.yaml        # Minimal agent
@@ -60,6 +67,7 @@ Every agent deployment creates:
 - **PVC** `{agentName}-data` (10Gi default, persistence disabled by default)
 - **ConfigMap** `{agentName}-config` — templated `openclaw.json` + `repos.json`
 - **ConfigMap** `{agentName}-skills` — skill `.md` files (if `skills` is defined)
+- **ConfigMap** `{agentName}-clank-task-cli` + `-clank-task-mcp` — binaries shipped from `bin/` (when `mcpServers.clankTask.enabled`, default true)
 - **ServiceAccount** + **Role** + **RoleBinding** — namespace reader
 
 Optional resources:
@@ -79,19 +87,29 @@ The deployment runs a shell script that executes in order:
 
 1. **SSH setup** — copies `git-ssh-key` from secret to `/root/.ssh/id_rsa`
 2. **Repo clone/pull** — iterates `repos.json`, clones new repos or pulls existing
-3. **Persist ~/.openclaw** — symlinks to `/data/openclaw` so sessions/cron state survive restarts
-4. **Email plugin** (conditional) — installs email channel extension
-5. **Skills** — copies `/config/skills/*.md` to `/root/.openclaw/skills/`
-6. **Workspace files** — downloads URL-based files and copies inline content to workspace
-7. **OAuth credentials** — copies `claude-credentials.json` from secret to PVC (first boot only), symlinks `/root/.claude` to `/data/.claude`
-8. **Infrastructure tools** (conditional) — downloads kubectl, flux, sops, age; sets up in-cluster kubeconfig; mounts remote kubeconfigs
-9. **Snapshot tools** (conditional) — downloads rclone, generates config, writes save script, restores from latest snapshot
-10. **Secret injection** — uses `jq` to merge `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN` into `openclaw.json` at runtime
-11. **Auth bootstrap** — creates agent auth-profiles from Claude credentials
-12. **Channel init** — runs `openclaw doctor --fix`
-13. **Gateway loop** — starts `openclaw gateway --bind lan` with restart-on-failure
+3. **Background git auto-pull** (conditional, `git.autoPull.enabled`, default true) — backgrounded loop that fetches repos every `intervalSeconds` (default 300). Skips dirty working trees, only pulls when origin has advanced, logs to `/tmp/git-sync.log` and `/proc/1/fd/{1,2}` so messages reach `kubectl logs`.
+4. **Persist `~/.openclaw`** — symlinks to `/data/openclaw` so sessions/cron state survive restarts
+5. **Email plugin** (conditional) — installs email channel extension
+6. **OAuth credentials** — copies `claude-credentials.json` from secret to PVC (first boot only), symlinks `/root/.claude` to `/data/.claude`
+7. **Infrastructure tools** (conditional) — downloads kubectl, flux, sops, age; sets up in-cluster kubeconfig; mounts remote kubeconfigs
+8. **Snapshot tools** (conditional) — downloads rclone (skipped if already installed in the image), generates config, writes save script
+9. **Snapshot restore** (conditional) — restores from latest snapshot before skill/workspace copies run
+10. **Skills** — copies `/config/skills/*.md` to `/root/.openclaw/skills/{name}/SKILL.md` (runs AFTER snapshot restore so ConfigMap skills are authoritative)
+11. **Workspace files** — downloads URL-based files into the workspace (runs AFTER snapshot restore)
+12. **Workspace content** — writes inline `workspaceContent` files (runs AFTER snapshot restore)
+13. **WhatsApp Baileys credentials persist** (conditional) — symlinks credential store onto PVC
+14. **Secret injection** — uses `jq` to merge `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN` into `openclaw.json` at runtime
+15. **Telegram pre-approval** — writes pre-approved Telegram user IDs
+16. **Channel init** — runs `openclaw doctor --fix`
+17. **Channel strip** — removes channel blocks not explicitly enabled in values
+18. **Auth bootstrap** — creates agent auth-profiles from Claude credentials
+19. **Extra init commands** — runs `extraInitCommands` shell snippet
+20. **Workspace sync** (background) — optional 2-way sync loop
+21. **Gateway loop** — starts `openclaw gateway --bind lan` with restart-on-failure
 
 When `snapshots.save.onShutdown` is enabled, a **preStop lifecycle hook** calls `/usr/local/bin/snapshot-save` and `terminationGracePeriodSeconds` is extended (default 300s) to allow the snapshot to complete.
+
+The `clank-task` CLI and `clank-task-mcp` stdio server are mounted from ConfigMaps to `/usr/local/bin/` and made executable. When `mcpServers.clankTask.enabled` is true (default), `clank-task-mcp` is registered in `openclaw.json` under `mcpServers."clank-task"` and runs as a stdio child process of the agent for typed task tool calls.
 
 ### Config Generation (configmap.yaml)
 
@@ -142,6 +160,9 @@ image:
 existingSecret: ""                         # Secret with tokens/keys
 git:
   repos: []                                # [{url, path, branch}]
+  autoPull:
+    enabled: true                          # background fetch+pull loop
+    intervalSeconds: 300
 channels:
   matrix:
     homeserver: "https://matrix.example.com"
@@ -149,9 +170,19 @@ channels:
     address: ""
     mailpitUrl: ""
     portalUrl: ""
+  whatsapp: { enabled: false }             # Baileys-based; credentials persist on PVC
+  sms: { enabled: false, provider: twilio, phoneNumber: "" }
 skills: {}                                 # filename.md: content
 workspaceFiles: []                         # [{path, url}] downloaded at startup
 workspaceContent: {}                       # path: inline content
+mcpServers:
+  clankTask:
+    enabled: true                          # registers clank-task-mcp stdio server
+gateway:
+  http:
+    endpoints:
+      chatCompletions: { enabled: true }   # /v1/chat/completions
+      responses: { enabled: true }         # /v1/responses (structured tool calls)
 agent:
   model:
     primary: "anthropic/claude-sonnet-4"
