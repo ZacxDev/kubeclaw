@@ -1126,6 +1126,58 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
               mountPath: /var/state
           resources:
             {{- toYaml .Values.logShipping.resources | nindent 12 }}
+        - name: trajectory-tailer
+          image: {{ .Values.logShipping.image }}
+          # OpenClaw writes a structured JSONL trajectory per session at
+          # /root/.openclaw/agents/<id>/sessions/*.trajectory.jsonl. Each file
+          # ends with a single `model.completed` event when the session
+          # finishes, containing the full trace (messagesSnapshot with
+          # reasoning, toolCalls, usage, promptCache, runId, assistantTexts).
+          # That's the bit OpenClaw's /v1/responses strips on the wire — we
+          # ship it to Loki for post-hoc reasoning-token analysis +
+          # join-by-runId with the bridge's agent_reply log line.
+          #
+          # Trajectory files are mode 600 root-owned (same trust boundary as
+          # stability-bundle-tailer). Mounted readOnly under the same subPath
+          # the agent uses, so we see the canonical files without write risk.
+          #
+          # Watermark scheme: basename#mtime per file. Once a file's
+          # mtime advances we re-emit (handles in-progress writes that
+          # gain a model.completed event later); rename/rotation produces
+          # a fresh basename so no double-emit on the common path.
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /var/state
+              touch /var/state/seen
+              while true; do
+                for f in /root/.openclaw/agents/*/sessions/*.trajectory.jsonl; do
+                  [ -e "$f" ] || continue
+                  marker="$(basename "$f")#$(stat -c %Y "$f" 2>/dev/null)"
+                  if grep -qxF "$marker" /var/state/seen 2>/dev/null; then
+                    continue
+                  fi
+                  # Emit each model.completed line wrapped in an event envelope
+                  # so Alloy's existing devpod-devops pipeline labels it under
+                  # event=agent_trajectory. There's typically one per session
+                  # but we tolerate N to be safe.
+                  grep '"type":"model.completed"' "$f" 2>/dev/null | while IFS= read -r line; do
+                    printf '{"event":"agent_trajectory","payload":%s}\n' "$line"
+                  done
+                  echo "$marker" >> /var/state/seen
+                done
+                sleep 10
+              done
+          volumeMounts:
+            - name: data
+              mountPath: /root/.openclaw
+              subPath: openclaw
+              readOnly: true
+            - name: trajectory-tailer-state
+              mountPath: /var/state
+          resources:
+            {{- toYaml .Values.logShipping.resources | nindent 12 }}
         {{- end }}
       volumes:
         - name: data
@@ -1194,6 +1246,8 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
         - name: openclaw-tmp
           emptyDir: {}
         - name: tailer-state
+          emptyDir: {}
+        - name: trajectory-tailer-state
           emptyDir: {}
         {{- end }}
         {{- with .Values.extraVolumes }}
