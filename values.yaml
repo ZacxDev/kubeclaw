@@ -202,6 +202,11 @@ messages:
 hooks:
   # -- Enable hooks
   enabled: true
+  # -- Allowed sessionKey prefixes for hook mappings. Required by openclaw
+  # 2026.5.18+ whenever any hook mapping sessionKey uses templates such as
+  # {{timestamp}} or {{from}}. If left empty, the template auto-emits
+  # "hook:element:" plus "hook:email:" (when channels.email.enabled).
+  allowedSessionKeyPrefixes: []
   # -- Hook mappings array. If empty, a default element hook is generated.
   # Set to a non-empty array to fully override.
   mappings: []

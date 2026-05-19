@@ -119,6 +119,19 @@ data:
       },
       "hooks": {
         "enabled": {{ .Values.hooks.enabled }},
+        "allowedSessionKeyPrefixes": [
+          {{- if .Values.hooks.allowedSessionKeyPrefixes }}
+          {{- range $i, $p := .Values.hooks.allowedSessionKeyPrefixes }}
+          {{- if $i }},{{ end }}
+          {{ $p | quote }}
+          {{- end }}
+          {{- else }}
+          "hook:element:"
+          {{- if .Values.channels.email.enabled }},
+          "hook:email:"
+          {{- end }}
+          {{- end }}
+        ],
         "mappings": [
           {{- if .Values.hooks.mappings }}
           {{- range $i, $m := .Values.hooks.mappings }}
