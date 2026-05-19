@@ -174,9 +174,9 @@ spec:
 
               # --- Persist ~/.openclaw on the PVC so sessions, cron state,
               #     and credentials survive pod restarts ---
-              mkdir -p /data/openclaw
-              rm -rf /root/.openclaw
-              ln -s /data/openclaw /root/.openclaw
+              # /root/.openclaw is now provided by the data PVC mounted at
+              # subPath: openclaw (see volumeMounts). Just ensure it exists.
+              mkdir -p /root/.openclaw
 
               # --- Email plugin ---
               {{- if .Values.channels.email.enabled }}
@@ -968,6 +968,14 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
           volumeMounts:
             - name: data
               mountPath: /data
+            # openclaw 2026.5.18+ refuses to traverse symlinked dirs when
+            # validating exec approval paths. Mounting the PVC subPath
+            # directly at /root/.openclaw avoids the previous
+            # `ln -s /data/openclaw /root/.openclaw` symlink while keeping
+            # the same persistence.
+            - name: data
+              mountPath: /root/.openclaw
+              subPath: openclaw
             - name: config
               mountPath: /config
             - name: secrets
