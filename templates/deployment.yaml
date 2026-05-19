@@ -976,6 +976,14 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
             - name: data
               mountPath: /root/.openclaw
               subPath: openclaw
+            {{- if .Values.logShipping.enabled }}
+            # Shared scratch dir for openclaw runtime logs. Mounted in
+            # the agent and the openclaw-log-tailer sidecar so the
+            # sidecar can tail /tmp/openclaw/openclaw-*.log to stdout
+            # for cluster log collection.
+            - name: openclaw-tmp
+              mountPath: /tmp/openclaw
+            {{- end }}
             - name: config
               mountPath: /config
             - name: secrets
@@ -1047,6 +1055,76 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
               port: 18789
             periodSeconds: 30
             failureThreshold: 3
+        {{- if .Values.logShipping.enabled }}
+        # --- Log shipping sidecars (opt-in via logShipping.enabled) ---
+        # Both tail files into stdout so Grafana Alloy (or any node
+        # log collector) picks them up via kubelet's container log path.
+        - name: openclaw-log-tailer
+          image: {{ .Values.logShipping.image }}
+          # Wait for the agent to start writing logs, then exec into
+          # `tail -F` so the busybox shell is replaced and the process
+          # is reaped cleanly on pod shutdown. Using -F (capital) handles
+          # log rotation; -n0 avoids re-emitting historical lines on a
+          # tailer restart (which would duplicate them in Loki).
+          command:
+            - /bin/sh
+            - -c
+            - |
+              while ! ls /tmp/openclaw/openclaw-*.log >/dev/null 2>&1; do
+                sleep 2
+              done
+              exec tail -n0 -F /tmp/openclaw/openclaw-*.log
+          volumeMounts:
+            - name: openclaw-tmp
+              mountPath: /tmp/openclaw
+          resources:
+            {{- toYaml .Values.logShipping.resources | nindent 12 }}
+        - name: stability-bundle-tailer
+          image: {{ .Values.logShipping.image }}
+          # Stability bundles are written into /root/.openclaw/logs/stability/
+          # as JSON files (one per incident). Poll the directory every 5s and
+          # emit each new file as a single stdout line wrapping the payload
+          # inline. Use a seen-set in an emptyDir so a restart doesn't
+          # re-emit everything (which would amplify a real outage).
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /var/state
+              touch /var/state/seen
+              # The data PVC is mounted at /root/.openclaw via subPath in
+              # the agent; here we mount it directly at the same path
+              # (no subPath needed — the bundles live under logs/stability/).
+              BUNDLE_DIR=/root/.openclaw/logs/stability
+              while true; do
+                if [ -d "$BUNDLE_DIR" ]; then
+                  for f in "$BUNDLE_DIR"/*.json; do
+                    [ -e "$f" ] || continue
+                    name=$(basename "$f")
+                    if ! grep -Fxq "$name" /var/state/seen 2>/dev/null; then
+                      # Inline the JSON payload. If the file is invalid
+                      # JSON, the outer line will be invalid too — that's
+                      # acceptable; the collector will log a parse error
+                      # rather than silently drop.
+                      payload=$(cat "$f")
+                      printf '{"event":"stability_bundle","file":"%s","payload":%s}\n' \
+                        "$name" "$payload"
+                      echo "$name" >> /var/state/seen
+                    fi
+                  done
+                fi
+                sleep 5
+              done
+          volumeMounts:
+            - name: data
+              mountPath: /root/.openclaw
+              subPath: openclaw
+              readOnly: true
+            - name: tailer-state
+              mountPath: /var/state
+          resources:
+            {{- toYaml .Values.logShipping.resources | nindent 12 }}
+        {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -1109,6 +1187,12 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
         - name: extra-{{ .name }}
           configMap:
             name: {{ include "kubeclaw.fullname" $ }}-{{ .name }}
+        {{- end }}
+        {{- if .Values.logShipping.enabled }}
+        - name: openclaw-tmp
+          emptyDir: {}
+        - name: tailer-state
+          emptyDir: {}
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}

@@ -423,6 +423,17 @@ snapshots:
     # -- Use IAM Roles for Service Accounts (no credential secret needed).
     useIRSA: false
 
+# -- Log shipping sidecars for observability.
+logShipping:
+  # -- Enable sidecar containers that tail /tmp/openclaw/*.log and
+  # stability bundles, emitting them to stdout for cluster log
+  # collection (e.g. Grafana Alloy → Loki).
+  enabled: false
+  image: busybox:1.36
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+
 # -- Pod-level settings
 nodeSelector: {}
 tolerations: []
