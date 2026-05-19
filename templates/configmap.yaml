@@ -126,10 +126,7 @@ data:
           {{ $p | quote }}
           {{- end }}
           {{- else }}
-          "hook:element:"
-          {{- if .Values.channels.email.enabled }},
-          "hook:email:"
-          {{- end }}
+          "hook:"
           {{- end }}
         ],
         "mappings": [
