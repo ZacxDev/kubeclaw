@@ -1102,11 +1102,13 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
                     [ -e "$f" ] || continue
                     name=$(basename "$f")
                     if ! grep -Fxq "$name" /var/state/seen 2>/dev/null; then
-                      # Inline the JSON payload. If the file is invalid
-                      # JSON, the outer line will be invalid too — that's
-                      # acceptable; the collector will log a parse error
-                      # rather than silently drop.
-                      payload=$(cat "$f")
+                      # Inline the JSON payload as a SINGLE stdout line.
+                      # `tr -d '\n'` flattens pretty-printed bundles so
+                      # Loki sees one event per bundle instead of N lines.
+                      # If the file is invalid JSON the outer line will
+                      # be invalid too — acceptable; the collector logs
+                      # a parse error rather than silently dropping.
+                      payload=$(tr -d '\n' < "$f")
                       printf '{"event":"stability_bundle","file":"%s","payload":%s}\n' \
                         "$name" "$payload"
                       echo "$name" >> /var/state/seen
