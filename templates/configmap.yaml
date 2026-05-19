@@ -32,6 +32,7 @@ data:
         ]
       },
       "channels": {
+        {{- if .Values.channels.matrix.enabled }}
         "matrix": {
           "enabled": {{ .Values.channels.matrix.enabled }},
           "homeserver": {{ .Values.channels.matrix.homeserver | quote }},
@@ -51,6 +52,7 @@ data:
           }
           {{- end }}
         },
+        {{- end }}
         "telegram": {
           "enabled": {{ .Values.channels.telegram.enabled }}
         },
