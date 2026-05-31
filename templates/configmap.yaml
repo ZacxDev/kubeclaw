@@ -17,6 +17,9 @@ data:
           "model": {
             "primary": {{ .Values.agent.model.primary | quote }}
           },
+          {{- if .Values.agent.thinkingDefault }}
+          "thinkingDefault": {{ .Values.agent.thinkingDefault | quote }},
+          {{- end }}
           "maxConcurrent": {{ .Values.agent.maxConcurrent }}
         },
         "list": [

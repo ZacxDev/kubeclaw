@@ -55,6 +55,11 @@ agent:
   workspace: ""
   # -- Maximum concurrent sessions
   maxConcurrent: 4
+  # -- Per-agent default thinking level (off|minimal|low|medium|high).
+  # Empty = use OpenClaw's per-model default. Lower this for reasoning models
+  # (e.g. deepseek) that otherwise burn their output budget on reasoning and
+  # emit empty/incomplete turns ("payloads=0 — surfacing error to user").
+  thinkingDefault: ""
   model:
     # -- Primary Claude model
     primary: "anthropic/claude-sonnet-4"
