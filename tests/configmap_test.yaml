@@ -184,3 +184,21 @@ tests:
       - notMatchRegex:
           path: data["openclaw.json"]
           pattern: '"whatsapp":\s*\{[^}]*"allowFrom"'
+
+  # --- openclaw 2026.6.x default-config validity regression ---
+  # The chart's default-rendered config must be valid on current openclaw.
+  # 2026.6.x rejects the mcpServers root key and the matrix streamMode/
+  # typingIndicator keys, so both features default OFF (see values.yaml).
+  - it: should NOT emit mcpServers root key by default (openclaw 2026.6.x rejects it)
+    asserts:
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"mcpServers"'
+  - it: should NOT emit a matrix channel block by default (2026.6.x schema)
+    asserts:
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"streamMode"'
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"matrix"\s*:\s*\{'

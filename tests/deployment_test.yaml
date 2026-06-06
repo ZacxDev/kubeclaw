@@ -302,6 +302,8 @@ tests:
   - it: should add teams to the channel-strip allowlist when teams enabled
     set:
       channels:
+        matrix:
+          enabled: true
         teams:
           enabled: true
     asserts:
@@ -314,6 +316,8 @@ tests:
   - it: should add discord to the channel-strip allowlist when discord enabled
     set:
       channels:
+        matrix:
+          enabled: true
         discord:
           enabled: true
     asserts:

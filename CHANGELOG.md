@@ -12,6 +12,42 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-06-06
+
+openclaw 2026.6.x compatibility fix. The chart's default-rendered config was
+**rejected by openclaw 2026.6.x**, so the gateway refused to start on a fresh
+deploy (verified live against `2026.6.1`). Both offending features now default
+OFF, making the default config valid out of the box.
+
+### Changed (default behavior)
+- **`channels.matrix.enabled` now defaults to `false`.** openclaw 2026.6.x's
+  matrix schema is `additionalProperties: false` and rejects the
+  `streamMode` / `typingIndicator` / `dm.*` keys this chart emits, so a
+  default-on matrix block makes the gateway fail to start.
+- **`mcpServers.clankTask.enabled` now defaults to `false`.** openclaw 2026.6.x
+  rejects the `mcpServers` root key (`Unrecognized key: "mcpServers"`).
+
+### Fixed
+- Default `helm install` on a current openclaw image (`2026.6.1`) now produces
+  a schema-valid `openclaw.json` (root keys: agents, channels[telegram,
+  whatsapp], commands, gateway, hooks, messages, tools) — gateway starts clean.
+  Validated by rendering defaults and running them through `openclaw doctor` on
+  a live `2026.6.1` runtime; 2 helm-unittest regression tests pin it.
+
+### Upgrade notes
+- **No action for consumers who already disabled matrix + clankTask** (e.g.
+  datapacket/civit) — their rendered config is unchanged.
+- **Consumers relying on the old defaults** (matrix-on / clankTask-on) were
+  already broken on openclaw 2026.6.x; they now get a valid config without
+  matrix/clankTask. Re-enabling either on 2026.6.x is a follow-up (the matrix
+  block + MCP registration must be re-expressed in the 2026.6.x schema).
+
+### Known gaps (carried)
+- Matrix and clankTask cannot be re-enabled on openclaw 2026.6.x until their
+  config blocks are modernized to the new schema.
+- Snapshot-enabled agents may restore a stale `openclaw.json` that overrides
+  the chart's rendered config — verify the chart config wins on a clean boot.
+
 ## [0.5.0] — 2026-06-06
 
 Closes the three "Known gaps" carried over from 0.4.0: no first-class Discord
