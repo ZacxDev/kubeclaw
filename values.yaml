@@ -6,6 +6,11 @@ agentName: ""
 # Defaults to "{agentName} Dev" if empty.
 agentDisplayName: ""
 
+# -- Number of agent pod replicas. Almost always 1 (the agent holds local
+# session state and a single gateway). Set to 0 to provision all resources
+# without running the pod ("save for later" / paused agent).
+replicaCount: 1
+
 image:
   # -- Container image repository
   repository: your-registry/openclaw
@@ -66,6 +71,34 @@ agent:
   # -- Matrix mention trigger patterns.
   # Defaults to ["@{agentName}", "{agentName}"] if empty.
   mentionPatterns: []
+  # -- Authentication bootstrap for the agent's auth-profiles.json at startup.
+  # Selects which credential profile is written to
+  # agents/<id>/agent/auth-profiles.json (and agents/main/agent/).
+  auth:
+    # -- Auth mode:
+    #  - "anthropic-oauth" (default): OAuth profile built from the Claude
+    #    credentials secret (claude-credentials.json). Original behavior.
+    #  - "openrouter": api_key profile built from the OPENROUTER_API_KEY secret
+    #    key. Replaces the hand-rolled OpenRouter extraInitCommands every
+    #    OpenRouter consumer previously needed (rm Claude creds + jq a profile).
+    #  - "apikey": generic api_key profile; set providerName and apiKeyEnv.
+    provider: "anthropic-oauth"
+    # -- Provider name recorded in the auth profile (api_key modes only).
+    # Defaults to "openrouter" when provider is "openrouter".
+    providerName: ""
+    # -- Profile id key in auth-profiles.json (api_key modes only).
+    # Defaults to "<providerName>:default".
+    profileId: ""
+    # -- Env var (sourced from existingSecret) holding the API key (api_key modes).
+    # Defaults to OPENROUTER_API_KEY for "openrouter", otherwise API_KEY.
+    apiKeyEnv: ""
+  # -- Extra keys merged verbatim into agents.defaults in openclaw.json.
+  # The chart renders workspace/model/maxConcurrent/thinkingDefault by default;
+  # any additional OpenClaw agent default (e.g. timeoutSeconds) set here is
+  # passed through as-is. Previously unknown agent.* keys were silently dropped.
+  defaults: {}
+  # defaults:
+  #   timeoutSeconds: 600
 
 # -- Skill files to mount. Map of filename to content.
 # Each skill should include YAML frontmatter (name, description, user-invocable).
@@ -138,6 +171,15 @@ channels:
     groupPolicy: "disabled"
     # -- Send read receipts
     sendReadReceipts: true
+    # -- Pre-approved WhatsApp sender IDs (rendered to channels.whatsapp.allowFrom)
+    allowFrom: []
+  teams:
+    # -- Enable Microsoft Teams channel
+    enabled: false
+    # -- Azure AD application (bot) ID
+    appId: ""
+    # -- Azure AD tenant ID
+    tenantId: ""
   sms:
     # -- Enable SMS channel (Twilio)
     enabled: false
@@ -246,6 +288,12 @@ rbac:
   create: true
   clusterAdmin:
     # -- Create a ClusterRoleBinding to cluster-admin for this agent
+    enabled: false
+  clusterReadOnly:
+    # -- Bind the agent ServiceAccount to the built-in cluster "view"
+    # ClusterRole for read-only access across all namespaces. Covers the common
+    # read-only diagnostic agent without hand-rolled RBAC. Skipped when
+    # clusterAdmin is enabled (superset).
     enabled: false
   orchestrator:
     # -- Create a scoped ClusterRole for cross-namespace agent orchestration.

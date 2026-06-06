@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "kubeclaw.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount | default 1 }}
   strategy:
     type: Recreate
   selector:
