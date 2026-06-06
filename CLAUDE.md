@@ -94,7 +94,7 @@ The deployment runs a shell script that executes in order:
 7. **Infrastructure tools** (conditional) — downloads kubectl, flux, sops, age; sets up in-cluster kubeconfig; mounts remote kubeconfigs
 8. **Snapshot tools** (conditional) — downloads rclone (skipped if already installed in the image), generates config, writes save script
 9. **Snapshot restore** (conditional) — restores from latest snapshot before skill/workspace copies run
-10. **Skills** — copies `/config/skills/*.md` to `/root/.openclaw/skills/{name}/SKILL.md` (runs AFTER snapshot restore so ConfigMap skills are authoritative)
+10. **Skills** — copies each `/config/skills/<key>.md` to `/root/.openclaw/skills/<key>/SKILL.md`, where `<key>` is the `skills:` map key (the filename stem via `basename "$f" .md`), NOT the frontmatter `name:` field (runs AFTER snapshot restore so ConfigMap skills are authoritative)
 11. **Workspace files** — downloads URL-based files into the workspace (runs AFTER snapshot restore)
 12. **Workspace content** — writes inline `workspaceContent` files (runs AFTER snapshot restore)
 13. **WhatsApp Baileys credentials persist** (conditional) — symlinks credential store onto PVC
