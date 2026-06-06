@@ -62,6 +62,22 @@ data:
         "telegram": {
           "enabled": {{ .Values.channels.telegram.enabled }}
         },
+        {{- if and .Values.channels.discord .Values.channels.discord.enabled }}
+        "discord": {
+          "enabled": true,
+          "token": {
+            "source": "env",
+            "provider": "default",
+            "id": "DISCORD_BOT_TOKEN"
+          },
+          {{- if .Values.channels.discord.applicationId }}
+          "applicationId": {{ .Values.channels.discord.applicationId | quote }},
+          {{- end }}
+          "dmPolicy": {{ .Values.channels.discord.dmPolicy | default "pairing" | quote }},
+          "allowFrom": {{ .Values.channels.discord.allowFrom | default list | toJson }},
+          "groupPolicy": {{ .Values.channels.discord.groupPolicy | default "allowlist" | quote }}
+        },
+        {{- end }}
         "whatsapp": {
           "dmPolicy": {{ .Values.channels.whatsapp.dmPolicy | quote }},
           "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},

@@ -309,3 +309,100 @@ tests:
           path: spec.template.spec.containers[0].command[2]
           pattern: "ALLOWED_CHANNELS='matrix,teams'"
         template: templates/deployment.yaml
+
+  # --- Gap A: Discord channel-strip allowlist ---
+  - it: should add discord to the channel-strip allowlist when discord enabled
+    set:
+      channels:
+        discord:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "ALLOWED_CHANNELS='matrix,discord'"
+        template: templates/deployment.yaml
+
+  - it: should NOT add discord to the channel-strip allowlist when disabled
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "discord"
+        template: templates/deployment.yaml
+
+  # --- Gap C: silent config-revert detection ---
+  - it: should include revert detection (warn) by default, ordered before strip
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'OC_CHART=/config/openclaw.json'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'CONFIG REVERT DETECTED'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '"event":"config_revert"'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'config\.onRevert=warn'
+        template: templates/deployment.yaml
+      # warn mode must NOT exit
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'to surface the revert'
+        template: templates/deployment.yaml
+
+  - it: should exit 1 on revert when config.onRevert=fail
+    set:
+      config:
+        onRevert: fail
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'config\.onRevert=fail'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'to surface the revert'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '\n\s*exit 1\n'
+        template: templates/deployment.yaml
+
+  - it: should omit revert detection entirely when config.onRevert=ignore
+    set:
+      config:
+        onRevert: ignore
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'CONFIG REVERT DETECTED'
+        template: templates/deployment.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'OC_CHART='
+        template: templates/deployment.yaml
+
+  # --- Gap B: prune stale chart-managed skills ---
+  - it: should omit skill prune block by default
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'chart-skills-manifest'
+        template: templates/deployment.yaml
+
+  - it: should include skill prune block when pruneStaleSkills=true
+    set:
+      pruneStaleSkills: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'SKILL_MANIFEST=/data/\.chart-skills-manifest'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'pruned stale chart-managed skill'
+        template: templates/deployment.yaml

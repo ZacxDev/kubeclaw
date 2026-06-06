@@ -370,14 +370,50 @@ spec:
               # Runs AFTER snapshot restore so current ConfigMap skills are authoritative.
               # rclone sync during restore would otherwise delete any skill not in the snapshot.
               mkdir -p /root/.openclaw/skills /root/.openclaw/cron
+              CURRENT_SKILLS=""
               if [ -d /config/skills ]; then
                 for f in /config/skills/*.md; do
                   [ -f "$f" ] || continue
                   skill_name=$(basename "$f" .md)
                   mkdir -p "/root/.openclaw/skills/${skill_name}"
                   cp "$f" "/root/.openclaw/skills/${skill_name}/SKILL.md"
+                  CURRENT_SKILLS="${CURRENT_SKILLS}${skill_name}
+              "
                 done
               fi
+              {{- if .Values.pruneStaleSkills }}
+              # --- Prune chart-managed skills removed from values ---
+              # SAFE manifest model: we only ever delete a skill dir that
+              #   (a) is recorded in the PREVIOUS chart-managed manifest, AND
+              #   (b) is NOT in the current set from /config/skills, AND
+              #   (c) actually exists with a SKILL.md.
+              # This guarantees unmanaged / snapshot-restored / agent-authored
+              # skills are NEVER touched (they were never in our manifest).
+              #
+              # The manifest lives OUTSIDE the skills tree (and is on the data
+              # PVC at /data, not the snapshot paths) so snapshot restore of
+              # the skills dir cannot clobber it. First boot: manifest is empty
+              # → nothing pruned, then we write the current set as the manifest.
+              SKILL_MANIFEST=/data/.chart-skills-manifest
+              if [ -f "$SKILL_MANIFEST" ]; then
+                while IFS= read -r prev; do
+                  [ -n "$prev" ] || continue
+                  # Still in the current desired set? keep it.
+                  if printf '%s\n' "$CURRENT_SKILLS" | grep -qxF "$prev"; then
+                    continue
+                  fi
+                  # Only remove if it exists AND has a SKILL.md (i.e. looks
+                  # like a chart-installed skill, not a random dir).
+                  if [ -f "/root/.openclaw/skills/${prev}/SKILL.md" ]; then
+                    rm -rf "/root/.openclaw/skills/${prev}"
+                    echo "[$(date -Iseconds)] pruned stale chart-managed skill: ${prev}"
+                  fi
+                done < "$SKILL_MANIFEST"
+              fi
+              # Rewrite the manifest to the current chart-managed set (sorted,
+              # de-duped, no blank lines). Next boot uses this as the baseline.
+              printf '%s' "$CURRENT_SKILLS" | grep -v '^[[:space:]]*$' | sort -u > "$SKILL_MANIFEST" 2>/dev/null || true
+              {{- end }}
 
               # --- Workspace files ---
               # Runs AFTER snapshot restore for same reason as Skills.
@@ -447,8 +483,61 @@ spec:
               {{- end }}
 
               # --- Initialize channels ---
+              {{- $onRevert := ((.Values.config | default dict).onRevert | default "warn") }}
               echo "[$(date -Iseconds)] Running openclaw doctor --fix..."
               openclaw doctor --fix || echo "Doctor exited with $?, continuing..."
+
+              {{- if ne $onRevert "ignore" }}
+              # --- Detect silent config revert (config.onRevert={{ $onRevert }}) ---
+              # openclaw doctor --fix silently reverts openclaw.json to its
+              # last-known-good copy when the generated config is rejected as
+              # schema-invalid: the bad change looks applied while the agent
+              # actually runs the OLD config. We CANNOT detect this by hashing
+              # the file — doctor legitimately mutates a VALID config too (it
+              # injects meta + a plugins/skills registry), so the file always
+              # changes. Instead we check that the chart's OWN intended settings
+              # survived: every scalar the chart writes to /config/openclaw.json
+              # must still be present unchanged in the active config. A revert
+              # restores an older config whose values differ, so a mismatch ==
+              # the chart config did not take effect. Runs BEFORE the channel
+              # strip (the strip only rewrites .channels, not these paths).
+              OC_CONFIG=/root/.openclaw/openclaw.json
+              OC_CHART=/config/openclaw.json
+              _oc_field() { jq -r "$2 // \"\"" "$1" 2>/dev/null; }
+              OC_REVERT=""
+              for _p in '.agents.defaults.model.primary' '.agents.defaults.workspace' '.agents.list[0].id' '.agents.defaults.maxConcurrent'; do
+                _want=$(_oc_field "$OC_CHART" "$_p")
+                _got=$(_oc_field "$OC_CONFIG" "$_p")
+                if [ "$_want" != "$_got" ]; then OC_REVERT="${_p} (want=${_want} got=${_got})"; break; fi
+              done
+              if [ -n "$OC_REVERT" ]; then
+                # Structured one-line JSON event (mirrors stability-bundle tailer
+                # style) so log collectors can alert on event=config_revert.
+                printf '{"event":"config_revert","mode":"%s","mismatch":"%s","config":"%s","detail":"openclaw doctor did not apply the chart-generated config (likely reverted to openclaw.json.last-good after rejecting it as schema-invalid)"}\n' \
+                  "{{ $onRevert }}" "$OC_REVERT" "$OC_CONFIG"
+                echo "############################################################" >&2
+                echo "# CONFIG REVERT DETECTED" >&2
+                echo "# openclaw doctor --fix did not apply the chart-generated" >&2
+                echo "# config — a setting this release rendered is missing from" >&2
+                echo "# the active config (doctor likely rejected it and restored" >&2
+                echo "# openclaw.json.last-good). The agent is NOT running the" >&2
+                echo "# values from this chart release." >&2
+                echo "# mismatch: $OC_REVERT" >&2
+                echo "# Inspect: openclaw config validate; check .rejected.*/.clobbered.* files" >&2
+                echo "############################################################" >&2
+                # Sentinel file for out-of-band detection (kubectl exec / probes).
+                printf '{"reverted":true,"mode":"%s","mismatch":"%s","ts":"%s"}\n' \
+                  "{{ $onRevert }}" "$OC_REVERT" "$(date -Iseconds)" \
+                  > /root/.openclaw/.config-reverted 2>/dev/null || true
+                {{- if eq $onRevert "fail" }}
+                echo "[$(date -Iseconds)] config.onRevert=fail — exiting 1 to surface the revert (CrashLoopBackOff)." >&2
+                exit 1
+                {{- end }}
+              else
+                # No revert: clear any stale sentinel from a prior boot.
+                rm -f /root/.openclaw/.config-reverted 2>/dev/null || true
+              fi
+              {{- end }}
 
               # --- Strip channels not explicitly enabled in helm values ---
               # openclaw doctor may auto-enable channels (e.g. sms) that the
@@ -456,6 +545,7 @@ spec:
               {{- $enabledChannels := list }}
               {{- if .Values.channels.matrix.enabled }}{{ $enabledChannels = append $enabledChannels "matrix" }}{{ end }}
               {{- if .Values.channels.telegram.enabled }}{{ $enabledChannels = append $enabledChannels "telegram" }}{{ end }}
+              {{- if (.Values.channels.discord | default dict).enabled }}{{ $enabledChannels = append $enabledChannels "discord" }}{{ end }}
               {{- if .Values.channels.whatsapp.enabled }}{{ $enabledChannels = append $enabledChannels "whatsapp" }}{{ end }}
               {{- if .Values.channels.email.enabled }}{{ $enabledChannels = append $enabledChannels "email" }}{{ end }}
               {{- if .Values.channels.sms.enabled }}{{ $enabledChannels = append $enabledChannels "sms" }}{{ end }}

@@ -109,6 +109,65 @@ tests:
           path: data["openclaw.json"]
           pattern: '"teams":\s*\{'
 
+  - it: should render channels.discord when enabled
+    set:
+      channels:
+        discord:
+          enabled: true
+          applicationId: "disc-app-123"
+          dmPolicy: "allowlist"
+          allowFrom:
+            - "111222333"
+          groupPolicy: "open"
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"discord":\s*\{'
+      # token uses the env-source form (no jq injection)
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"id":\s*"DISCORD_BOT_TOKEN"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"source":\s*"env"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"applicationId":\s*"disc-app-123"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"dmPolicy":\s*"allowlist"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"groupPolicy":\s*"open"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"allowFrom":\s*\[\s*"111222333"\s*\]'
+
+  - it: should render discord with defaults and omit applicationId when blank
+    set:
+      channels:
+        discord:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"discord":\s*\{'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"dmPolicy":\s*"pairing"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"groupPolicy":\s*"allowlist"'
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"discord":\s*\{[^}]*"applicationId"'
+
+  - it: should not render channels.discord when disabled
+    asserts:
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"discord":\s*\{'
+
   - it: should render whatsapp.allowFrom when set
     set:
       channels:

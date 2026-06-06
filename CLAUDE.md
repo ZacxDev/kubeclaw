@@ -94,13 +94,13 @@ The deployment runs a shell script that executes in order:
 7. **Infrastructure tools** (conditional) — downloads kubectl, flux, sops, age; sets up in-cluster kubeconfig; mounts remote kubeconfigs
 8. **Snapshot tools** (conditional) — downloads rclone (skipped if already installed in the image), generates config, writes save script
 9. **Snapshot restore** (conditional) — restores from latest snapshot before skill/workspace copies run
-10. **Skills** — copies each `/config/skills/<key>.md` to `/root/.openclaw/skills/<key>/SKILL.md`, where `<key>` is the `skills:` map key (the filename stem via `basename "$f" .md`), NOT the frontmatter `name:` field (runs AFTER snapshot restore so ConfigMap skills are authoritative)
+10. **Skills** — copies each `/config/skills/<key>.md` to `/root/.openclaw/skills/<key>/SKILL.md`, where `<key>` is the `skills:` map key (the filename stem via `basename "$f" .md`), NOT the frontmatter `name:` field (runs AFTER snapshot restore so ConfigMap skills are authoritative). When `pruneStaleSkills: true`, a manifest at `/data/.chart-skills-manifest` (outside the skills tree, immune to snapshot restore) records the chart-managed skill dirs; on a later boot, dirs in the previous manifest that are no longer in values AND have a `SKILL.md` are deleted. Unmanaged / snapshot-restored / agent-authored skills are never touched. First boot prunes nothing (empty manifest), then writes the manifest — so removals take effect on the NEXT restart.
 11. **Workspace files** — downloads URL-based files into the workspace (runs AFTER snapshot restore)
 12. **Workspace content** — writes inline `workspaceContent` files (runs AFTER snapshot restore)
 13. **WhatsApp Baileys credentials persist** (conditional) — symlinks credential store onto PVC
-14. **Secret injection** — uses `jq` to merge `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN` into `openclaw.json` at runtime
+14. **Secret injection** — uses `jq` to merge `MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN` into `openclaw.json` at runtime (Discord uses an env-source token, no jq injection)
 15. **Telegram pre-approval** — writes pre-approved Telegram user IDs
-16. **Channel init** — runs `openclaw doctor --fix`
+16. **Channel init + config-revert detection** — runs `openclaw doctor --fix`, then (unless `config.onRevert: ignore`) checks that the chart's intended scalars from `/config/openclaw.json` (`agents.defaults.model.primary`, `workspace`, `maxConcurrent`, `agents.list[0].id`) still match the active `openclaw.json`. Detection is semantic (not a file hash) because doctor legitimately mutates a valid config too. A mismatch means doctor silently reverted to `openclaw.json.last-good`; emits a banner + structured `event=config_revert` JSON line + a `/root/.openclaw/.config-reverted` sentinel. `warn` (default) continues; `fail` exits 1 (CrashLoopBackOff). Runs BEFORE the channel strip.
 17. **Channel strip** — removes channel blocks not explicitly enabled in values
 18. **Auth bootstrap** — creates agent auth-profiles from Claude credentials
 19. **Extra init commands** — runs `extraInitCommands` shell snippet
@@ -170,9 +170,13 @@ channels:
     address: ""
     mailpitUrl: ""
     portalUrl: ""
+  discord: { enabled: false, applicationId: "", dmPolicy: pairing, groupPolicy: allowlist, allowFrom: [] }  # native; token via DISCORD_BOT_TOKEN env source
   whatsapp: { enabled: false }             # Baileys-based; credentials persist on PVC
   sms: { enabled: false, provider: twilio, phoneNumber: "" }
+config:
+  onRevert: "warn"                         # warn|fail|ignore — surface silent openclaw.json.last-good reverts
 skills: {}                                 # filename.md: content
+pruneStaleSkills: false                    # prune chart-managed skills removed from values (manifest-based, opt-in)
 workspaceFiles: []                         # [{path, url}] downloaded at startup
 workspaceContent: {}                       # path: inline content
 mcpServers:
@@ -190,7 +194,7 @@ agent:
 
 ### Secret Keys (all optional)
 
-`MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `HOOKS_TOKEN`, `GITHUB_TOKEN`, `BRAVE_API_KEY`, `ANTHROPIC_API_KEY`, `git-ssh-key`, `claude-credentials.json`
+`MATRIX_ACCESS_TOKEN`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, `HOOKS_TOKEN`, `GITHUB_TOKEN`, `BRAVE_API_KEY`, `ANTHROPIC_API_KEY`, `git-ssh-key`, `claude-credentials.json`
 
 Snapshot credentials (in `snapshots.credentials.existingSecret` or main secret):
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SNAPSHOT_ENCRYPTION_PASSWORD`

@@ -35,6 +35,13 @@ skills:
     # Helper Skill
     Additional instructions.
 
+# Exercise the stale-skill prune path (Gap B) in full-values rendering.
+pruneStaleSkills: true
+
+# Exercise config-revert detection (Gap C) in full-values rendering.
+config:
+  onRevert: warn
+
 workspaceContent:
   AGENTS.md: |
     # Project Instructions
@@ -54,6 +61,13 @@ channels:
     autoJoin: "always"
   telegram:
     enabled: true
+  discord:
+    enabled: true
+    applicationId: "111111111111111111"
+    dmPolicy: "allowlist"
+    allowFrom:
+      - "222222222222222222"
+    groupPolicy: "open"
 
 tools:
   web:
