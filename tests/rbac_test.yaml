@@ -4,6 +4,7 @@ templates:
   - templates/role.yaml
   - templates/rolebinding.yaml
   - templates/clusterrolebinding.yaml
+  - templates/clusterrolebinding-readonly.yaml
 set:
   agentName: testbot
   existingSecret: devpod-secrets
@@ -143,3 +144,46 @@ tests:
       - equal:
           path: metadata.namespace
           value: devpod-testbot
+
+  - it: should create read-only ClusterRoleBinding to view when clusterReadOnly enabled
+    template: templates/clusterrolebinding-readonly.yaml
+    set:
+      rbac:
+        clusterReadOnly:
+          enabled: true
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+      - equal:
+          path: metadata.name
+          value: testbot-view
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: roleRef.name
+          value: view
+      - equal:
+          path: subjects[0].name
+          value: testbot-devpod
+      - equal:
+          path: subjects[0].namespace
+          value: devpod-testbot
+
+  - it: should not create read-only ClusterRoleBinding by default
+    template: templates/clusterrolebinding-readonly.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not create read-only ClusterRoleBinding when clusterAdmin enabled
+    template: templates/clusterrolebinding-readonly.yaml
+    set:
+      rbac:
+        clusterReadOnly:
+          enabled: true
+        clusterAdmin:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -74,3 +74,54 @@ tests:
       - matchRegex:
           path: data["repos.json"]
           pattern: "git@github.com:test/repo.git"
+
+  - it: should merge agent.defaults passthrough keys into openclaw.json
+    set:
+      agent:
+        defaults:
+          timeoutSeconds: 600
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"timeoutSeconds":\s*600'
+
+  - it: should render channels.teams when enabled
+    set:
+      channels:
+        teams:
+          enabled: true
+          appId: "app-123"
+          tenantId: "tenant-456"
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"teams":\s*\{'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"appId":\s*"app-123"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"tenantId":\s*"tenant-456"'
+
+  - it: should not render channels.teams when disabled
+    asserts:
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"teams":\s*\{'
+
+  - it: should render whatsapp.allowFrom when set
+    set:
+      channels:
+        whatsapp:
+          allowFrom:
+            - "+15551234567"
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"allowFrom":\s*\[\s*"\+15551234567"\s*\]'
+
+  - it: should not render whatsapp.allowFrom when empty
+    asserts:
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"whatsapp":\s*\{[^}]*"allowFrom"'

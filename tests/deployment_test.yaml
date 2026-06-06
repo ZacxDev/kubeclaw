@@ -56,7 +56,7 @@ tests:
         template: templates/deployment.yaml
       - equal:
           path: spec.template.spec.containers[0].resources.limits.memory
-          value: "2Gi"
+          value: "3Gi"
         template: templates/deployment.yaml
 
   - it: should set custom resources
@@ -263,4 +263,49 @@ tests:
             name: workspace-content
             configMap:
               name: testbot-workspace-content
+        template: templates/deployment.yaml
+
+  - it: should bootstrap anthropic oauth auth-profiles by default
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'Bootstrap agent auth from Claude credentials'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '"anthropic:claude-cli":\{"type":"oauth","provider":"anthropic"'
+        template: templates/deployment.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '"type":"api_key"'
+        template: templates/deployment.yaml
+
+  - it: should bootstrap openrouter api_key auth-profiles when provider is openrouter
+    set:
+      agent:
+        auth:
+          provider: openrouter
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'printenv "OPENROUTER_API_KEY"'
+        template: templates/deployment.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '"openrouter:default" :\{"type":"api_key","provider":"openrouter","key":\$key\}'
+        template: templates/deployment.yaml
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: 'claudeAiOauth'
+        template: templates/deployment.yaml
+
+  - it: should add teams to the channel-strip allowlist when teams enabled
+    set:
+      channels:
+        teams:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: "ALLOWED_CHANNELS='matrix,teams'"
         template: templates/deployment.yaml

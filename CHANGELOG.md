@@ -46,6 +46,11 @@ and channels emitted by consumers but stripped by the chart.
 ### Fixed
 - `channels.teams` and `channels.whatsapp.allowFrom` are no longer silently
   discarded between config generation and the startup channel-strip.
+- `replicaCount: 0` is now honored. The deployment used
+  `{{ .Values.replicaCount | default 1 }}`, and Helm's `default` treats `0` as
+  empty — so "save for later" (0 replicas, used by clawgate) silently ran 1
+  replica. Now rendered as `{{ .Values.replicaCount }}` with the default in
+  values.yaml.
 
 ### Upgrade notes
 No breaking changes — all additions are opt-in and default to prior behavior.

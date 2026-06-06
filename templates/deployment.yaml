@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "kubeclaw.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount | default 1 }}
+  replicas: {{ .Values.replicaCount }}
   strategy:
     type: Recreate
   selector:
@@ -459,6 +459,7 @@ spec:
               {{- if .Values.channels.whatsapp.enabled }}{{ $enabledChannels = append $enabledChannels "whatsapp" }}{{ end }}
               {{- if .Values.channels.email.enabled }}{{ $enabledChannels = append $enabledChannels "email" }}{{ end }}
               {{- if .Values.channels.sms.enabled }}{{ $enabledChannels = append $enabledChannels "sms" }}{{ end }}
+              {{- if (.Values.channels.teams | default dict).enabled }}{{ $enabledChannels = append $enabledChannels "teams" }}{{ end }}
               ALLOWED_CHANNELS='{{ join "," $enabledChannels }}'
               if [ -f /root/.openclaw/openclaw.json ]; then
                 jq --arg allowed "$ALLOWED_CHANNELS" '
@@ -469,6 +470,9 @@ spec:
                   && echo "[$(date -Iseconds)] Stripped unauthorized channels from openclaw.json"
               fi
 
+              {{- $auth := (.Values.agent.auth | default dict) }}
+              {{- $authProvider := ($auth.provider | default "anthropic-oauth") }}
+              {{- if eq $authProvider "anthropic-oauth" }}
               # --- Bootstrap agent auth from Claude credentials ---
               AGENT_ID="{{ include "kubeclaw.agentId" . }}"
               AGENT_AUTH_DIR="/root/.openclaw/agents/$AGENT_ID/agent"
@@ -491,6 +495,26 @@ spec:
                   cp "$AGENT_AUTH_DIR/auth-profiles.json" /root/.openclaw/agents/main/agent/auth-profiles.json
                 fi
               fi
+              {{- else }}
+              {{- $providerName := ($auth.providerName | default (ternary "openrouter" "" (eq $authProvider "openrouter"))) }}
+              {{- $apiKeyEnv := ($auth.apiKeyEnv | default (ternary "OPENROUTER_API_KEY" "API_KEY" (eq $authProvider "openrouter"))) }}
+              {{- $profileId := ($auth.profileId | default (printf "%s:default" $providerName)) }}
+              # --- Bootstrap agent auth from API key ({{ $providerName }}) ---
+              AGENT_ID="{{ include "kubeclaw.agentId" . }}"
+              AGENT_AUTH_DIR="/root/.openclaw/agents/$AGENT_ID/agent"
+              API_KEY_VAL="$(printenv {{ $apiKeyEnv | quote }} 2>/dev/null)"
+              if [ -n "$API_KEY_VAL" ]; then
+                mkdir -p "$AGENT_AUTH_DIR" /root/.openclaw/agents/main/agent
+                jq -n --arg key "$API_KEY_VAL" \
+                  '{"version":1,"profiles":{ {{ $profileId | quote }} :{"type":"api_key","provider":{{ $providerName | quote }},"key":$key}}}' \
+                  > "$AGENT_AUTH_DIR/auth-profiles.json"
+                chmod 600 "$AGENT_AUTH_DIR/auth-profiles.json"
+                cp "$AGENT_AUTH_DIR/auth-profiles.json" /root/.openclaw/agents/main/agent/auth-profiles.json
+                echo "[$(date -Iseconds)] Created {{ $providerName }} api_key auth-profiles for agent '$AGENT_ID'"
+              else
+                echo "[$(date -Iseconds)] WARNING: {{ $apiKeyEnv }} not set; skipping api_key auth bootstrap"
+              fi
+              {{- end }}
 
               {{- if .Values.extraInitCommands }}
               # --- Extra init commands ---

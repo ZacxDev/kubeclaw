@@ -21,6 +21,9 @@ data:
           "thinkingDefault": {{ .Values.agent.thinkingDefault | quote }},
           {{- end }}
           "maxConcurrent": {{ .Values.agent.maxConcurrent }}
+          {{- range $k, $v := .Values.agent.defaults }}
+          ,{{ $k | quote }}: {{ $v | toJson }}
+          {{- end }}
         },
         "list": [
           {
@@ -63,7 +66,17 @@ data:
           "dmPolicy": {{ .Values.channels.whatsapp.dmPolicy | quote }},
           "groupPolicy": {{ .Values.channels.whatsapp.groupPolicy | quote }},
           "sendReadReceipts": {{ .Values.channels.whatsapp.sendReadReceipts }}
+          {{- if .Values.channels.whatsapp.allowFrom }},
+          "allowFrom": {{ .Values.channels.whatsapp.allowFrom | toJson }}
+          {{- end }}
         }
+        {{- if and .Values.channels.teams .Values.channels.teams.enabled }},
+        "teams": {
+          "enabled": true,
+          "appId": {{ .Values.channels.teams.appId | quote }},
+          "tenantId": {{ .Values.channels.teams.tenantId | quote }}
+        }
+        {{- end }}
         {{- if .Values.channels.sms.enabled }},
         "sms": {
           "enabled": true,
