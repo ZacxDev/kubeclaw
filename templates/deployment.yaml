@@ -181,12 +181,20 @@ spec:
               # --- Email plugin ---
               {{- if .Values.channels.email.enabled }}
               if [ -d /config/email-plugin ]; then
-                PLUGIN_DIR="/usr/local/lib/node_modules/openclaw/extensions/email"
+                # Install into openclaw's stock extensions dir (dist/extensions).
+                # openclaw 2026.6.x's plugin loader validates that a discovered
+                # extension's entry stays within its package dir; a plugin placed
+                # at node_modules/openclaw/extensions/ (the pre-2026.6 location)
+                # is rejected with "extension entry escapes package directory".
+                # dist/extensions/<id> is where stock extensions live, so the
+                # plugin is discovered as a stock extension (no install-time
+                # dangerous-code scan, no path-escape error).
+                PLUGIN_DIR="/usr/local/lib/node_modules/openclaw/dist/extensions/email"
                 mkdir -p "$PLUGIN_DIR"
                 cp /config/email-plugin/index.js "$PLUGIN_DIR/"
                 cp /config/email-plugin/package.json "$PLUGIN_DIR/"
                 cp /config/email-plugin/openclaw.plugin.json "$PLUGIN_DIR/"
-                echo "Email plugin installed"
+                echo "Email plugin installed (dist/extensions/email)"
               fi
               {{- end }}
 

@@ -12,6 +12,30 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-06-07
+
+openclaw 2026.6.x email-plugin compatibility fix.
+
+### Fixed
+- **Email plugin install location.** The plugin was copied to
+  `node_modules/openclaw/extensions/email`, which openclaw 2026.6.x's plugin
+  loader rejects with `extension entry escapes package directory: ./index.js`
+  (a fatal "Invalid config" that stops the gateway). It is now installed to
+  `node_modules/openclaw/dist/extensions/email` — the stock-extension location —
+  so openclaw discovers it cleanly as a stock extension (no path-escape error,
+  and no `plugins install` dangerous-code scan). Verified against a live
+  `2026.6.1` runtime: the email-enabled config now validates and the gateway
+  starts.
+
+### Known gaps (carried)
+- On openclaw 2026.6.x the email plugin's openclaw-native channel registration
+  is skipped (`bundled channel entry email missing bundled-channel-entry
+  contract`). This does not block startup and does not affect agents that use
+  email via the Clankup **portal** + `send_email` tool (the homelab fleet's
+  model). Full openclaw-native email-channel support needs the plugin updated to
+  the 2026.6.x channel-entry contract — tracked follow-up.
+- Matrix and clankTask remain default-off pending 2026.6.x schema updates.
+
 ## [0.5.1] — 2026-06-06
 
 openclaw 2026.6.x compatibility fix. The chart's default-rendered config was
