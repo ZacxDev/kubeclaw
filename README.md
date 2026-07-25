@@ -192,7 +192,8 @@ Optional resources:
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `mcpServers.clankTask.enabled` | `true` | Register `clank-task-mcp` stdio server with OpenClaw for typed task tools |
+| `mcpServers.clankTask.enabled` | `false` | Register `clank-task-mcp` stdio server with OpenClaw (emitted under the native `mcp.servers.<name>` key) for typed task tools |
+| `config.updateCheckOnStart` | `false` | Emit `update.checkOnStart`. When `false`, OpenClaw skips the npm-registry update check at gateway/`doctor` start — required for agents whose egress does not allowlist `registry.npmjs.org` (otherwise startup hangs on openclaw >= 2026.6.11) |
 
 ### Gateway
 

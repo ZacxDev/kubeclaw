@@ -185,15 +185,67 @@ tests:
           path: data["openclaw.json"]
           pattern: '"whatsapp":\s*\{[^}]*"allowFrom"'
 
-  # --- openclaw 2026.6.x default-config validity regression ---
-  # The chart's default-rendered config must be valid on current openclaw.
-  # 2026.6.x rejects the mcpServers root key and the matrix streamMode/
-  # typingIndicator keys, so both features default OFF (see values.yaml).
-  - it: should NOT emit mcpServers root key by default (openclaw 2026.6.x rejects it)
+  # --- openclaw config-schema validity regression (verified on 2026.7.1-2
+  #     AND 2026.6.1, 2026-07-25) ---
+  # The chart's rendered config must be valid on current openclaw.
+  # The legacy top-level `mcpServers` key is rejected by BOTH 2026.7.x and
+  # 2026.6.1 ("<root>: Invalid input"); MCP servers now live under the native
+  # `mcp.servers.<name>` key. matrix streamMode/typingIndicator keys still
+  # default OFF (see values.yaml).
+  - it: should NOT emit the legacy mcpServers root key (rejected by 2026.6.1 + 2026.7.x)
+    set:
+      mcpServers:
+        clankTask:
+          enabled: true
     asserts:
       - notMatchRegex:
           path: data["openclaw.json"]
           pattern: '"mcpServers"'
+  - it: should emit mcp.servers.clank-task when MCP enabled (native key)
+    set:
+      mcpServers:
+        clankTask:
+          enabled: true
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"mcp":\s*\{'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"servers":\s*\{'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"clank-task":\s*\{'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"command":\s*"/usr/local/bin/clank-task-mcp"'
+      # transport is intentionally omitted (stdio inferred from command;
+      # 2026.6.1's enum rejects an explicit "stdio")
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"transport"'
+  - it: should NOT emit an mcp block when MCP disabled (default)
+    asserts:
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"mcp":\s*\{'
+  # --- doctor/gateway npm update-check toggle ---
+  # update.checkOnStart:false stops the blocking registry.npmjs.org fetch that
+  # hangs `openclaw doctor --fix` / gateway start under restricted egress on
+  # openclaw >= 2026.6.11. Default OFF (safe for hardened agents).
+  - it: should emit update.checkOnStart false by default
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"update":\s*\{\s*"checkOnStart":\s*false'
+  - it: should emit update.checkOnStart true when opted in
+    set:
+      config:
+        updateCheckOnStart: true
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"checkOnStart":\s*true'
   - it: should NOT emit a matrix channel block by default (2026.6.x schema)
     asserts:
       - notMatchRegex:

@@ -117,14 +117,19 @@ data:
         }
       },
       {{- if .Values.mcpServers.clankTask.enabled }}
-      "mcpServers": {
-        "clank-task": {
-          "command": "/usr/local/bin/clank-task-mcp",
-          "args": [],
-          "transport": "stdio"
+      "mcp": {
+        "servers": {
+          "clank-task": {
+            "command": "/usr/local/bin/clank-task-mcp",
+            "args": []
+          }
         }
       },
       {{- end }}
+      {{- $updateCheck := ((.Values.config | default dict).updateCheckOnStart | default false) }}
+      "update": {
+        "checkOnStart": {{ $updateCheck }}
+      },
       "gateway": {
         "mode": {{ .Values.gateway.mode | quote }},
         "controlUi": {
