@@ -1,0 +1,95 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if not .Values.networkPolicy.cilium }}
+{{- fail "networkPolicy.enabled requires networkPolicy.cilium=true: the egress allowlist uses FQDN rules (toFQDNs) which a plain networking.k8s.io NetworkPolicy cannot express. Homelab CNI is Cilium. Either keep networkPolicy.cilium=true, or hand-author a plain NetworkPolicy outside the chart for a non-Cilium cluster." }}
+{{- end }}
+{{- $np := .Values.networkPolicy }}
+{{- $egress := $np.egress | default dict }}
+# EGRESS-ONLY CiliumNetworkPolicy for the agent pod.
+#
+# Threat model: prompt-injection / a hijacked agent exfiltrating secrets or the
+# workspace. This closes the exfiltration path — a fully-compromised pod can only
+# reach the destinations explicitly allowlisted below, so it cannot POST data to
+# an attacker endpoint.
+#
+# EGRESS-ONLY (no ingress rules) → ingress stays default-allow, so the gateway
+# port-forward (:18789/:18790), probes, and /healthz are unaffected.
+#
+# FQDN egress (toFQDNs) REQUIRES Cilium — a plain k8s NetworkPolicy cannot express
+# hostname allowlists. The kube-dns rule below carries `rules.dns` so Cilium snoops
+# DNS replies and can resolve the toFQDNs entries to live IPs.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-egress
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "kubeclaw.selectorLabels" . | nindent 6 }}
+  egress:
+    {{- if $egress.allowKubeDns }}
+    # DNS to kube-dns — REQUIRED first, and `rules.dns` lets Cilium snoop replies so
+    # the toFQDNs entries below can resolve to live IPs.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ (($egress.kubeDns | default dict).namespace) | default "kube-system" }}
+            k8s:k8s-app: {{ (($egress.kubeDns | default dict).k8sApp) | default "kube-dns" }}
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    {{- end }}
+    {{- if $egress.allowKubeApiserver }}
+    # k8s API server (openclaw runtime / in-cluster SA token). Low-risk allow.
+    - toEntities:
+        - kube-apiserver
+    {{- end }}
+    {{- with $egress.entities }}
+    # Additional Cilium entities (e.g. "cluster", "world") — use sparingly.
+    - toEntities:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- range $ep := ($egress.endpoints | default list) }}
+    # In-cluster endpoint: {{ $ep.namespace }}/{{ $ep.labels | toJson }}
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ $ep.namespace }}
+            {{- range $k, $v := $ep.labels }}
+            k8s:{{ $k }}: {{ $v | quote }}
+            {{- end }}
+      {{- with $ep.ports }}
+      toPorts:
+        - ports:
+            {{- range . }}
+            - port: {{ .port | quote }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- if $egress.fqdns }}
+    # FQDN egress allowlist (Cilium toFQDNs). Everything not listed is denied.
+    - toFQDNs:
+        {{- range $egress.fqdns }}
+        {{- if kindIs "string" . }}
+        {{- if contains "*" . }}
+        - matchPattern: {{ . | quote }}
+        {{- else }}
+        - matchName: {{ . | quote }}
+        {{- end }}
+        {{- else }}
+        {{- toYaml (list .) | nindent 8 }}
+        {{- end }}
+        {{- end }}
+      toPorts:
+        - ports:
+            {{- range ($egress.fqdnPorts | default (list (dict "port" "443" "protocol" "TCP"))) }}
+            - port: {{ .port | quote }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
+    {{- end }}
+{{- end }}

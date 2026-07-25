@@ -160,3 +160,28 @@ resources:
   limits:
     memory: "4Gi"
     cpu: "4000m"
+
+# --- 0.7.0 fleet-hardening: exercise the hardened render path in CI ---
+# (securityContext stays at the safe default here because infraTools installs
+# packages at runtime — cap-drop would break apt; that is the documented rule.)
+tls:
+  verify: true
+
+networkPolicy:
+  enabled: true
+  cilium: true
+  egress:
+    fqdns:
+      - "openrouter.ai"
+      - "*.githubusercontent.com"
+      - "github.com"
+    fqdnPorts:
+      - port: "443"
+        protocol: TCP
+    endpoints:
+      - namespace: mailbox
+        labels:
+          app: mailbox-postgres
+        ports:
+          - port: "5432"
+            protocol: TCP

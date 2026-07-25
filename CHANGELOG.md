@@ -12,6 +12,72 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-25
+
+Fleet-hardening as first-class values. Agents can now be hardened through clean
+`values.yaml` instead of per-release `postRenderers` + a hand-authored
+NetworkPolicy. **Every default is SAFE-by-default** — a default-values render is
+backward-compatible with 0.6.0 (proven by a render diff: the only functional
+change is the safe container `securityContext`; the openclaw.json config is
+byte-identical). Verified by gateway-start on OpenClaw **2026.6.1** AND
+**2026.7.1-2** (throwaway containers, same method as 0.6.0).
+
+### Added
+- **Container `securityContext` value** (`securityContext`), merged onto the
+  `agent` container. **DEFAULT = a safe baseline the chart previously lacked:**
+  `allowPrivilegeEscalation: false` + `seccompProfile.type: RuntimeDefault`.
+  Verified NON-breaking: gateway-start on both images under
+  `--security-opt=no-new-privileges` (the k8s equivalent) keeps `apt-get
+  update`, `apt-get install` (dpkg), `git clone`, and `openclaw doctor --fix`
+  all succeeding. `capabilities.drop:["ALL"]` is **opt-in, NOT default** — with
+  caps dropped, `apt`/`dpkg` fail at init (CapEff=0 → no CHOWN/DAC_OVERRIDE),
+  so only agents with deps baked into the image should set it (a commented
+  fully-hardened example ships in `values.yaml`). To disable the securityContext
+  entirely, set it to `null` (an empty `{}` does not clear it — Helm merges maps).
+- **Pod-level `podSecurityContext` value** (empty default → nothing rendered).
+  Provided for future non-root work; do NOT set `runAsNonRoot`/`runAsUser`
+  without reworking the image — the init script hardcodes writes to
+  `/root/.openclaw|.ssh|.kube` and `/usr/local/bin` (UID 0).
+- **TLS verification value** (`tls.verify`). The chart used to hardcode
+  `NODE_TLS_REJECT_UNAUTHORIZED=0` (all Node TLS verification OFF). It is now
+  driven by `tls.verify`. **DEFAULT `false` = "0" (unchanged behavior)** so no
+  existing agent breaks; set `tls.verify: true` for verification (renders "1").
+  For an internal self-signed endpoint, prefer supplying a CA via
+  `NODE_EXTRA_CA_CERTS` (extraEnv) over turning verification off.
+- **Egress `CiliumNetworkPolicy` template** (`templates/networkpolicy.yaml`),
+  gated on `networkPolicy.enabled` (**default false** — existing agents have no
+  policy; a default-deny would break them). When enabled it renders a
+  **CiliumNetworkPolicy** (`cilium.io/v2`), EGRESS-ONLY (ingress stays
+  default-allow so the gateway port-forward + probes work). Driven by values:
+  `egress.fqdns` (FQDN allowlist — exact → `matchName`, `*` → `matchPattern`),
+  `egress.fqdnPorts`, `egress.endpoints` (in-cluster `toEndpoints`), plus
+  always-allow kube-dns (with the `rules.dns` visibility rule so `toFQDNs`
+  resolves) and kube-apiserver. FQDN egress REQUIRES Cilium — `networkPolicy.cilium`
+  defaults true and the render fails with a clear message if set false while
+  enabled. Server-validated against the live homelab cluster's Cilium CRD
+  (`kubectl apply --dry-run=server`). Generalizes the initiatives agent's
+  hand-written `network-policy.yaml`.
+
+### Notes
+- `tools.web.search.enabled` was already a first-class value (rendered to
+  `tools.web.search.enabled` in openclaw.json). Documented: set it `false` for
+  restricted-egress agents — it also avoids the search-plugin provider-fetch at
+  `openclaw doctor --fix` startup.
+
+### Upgrade notes
+- **No values change is required** to upgrade 0.6.0 → 0.7.0. Existing agents get
+  the safe container `securityContext` automatically; everything else defaults to
+  the prior behavior. (Pods roll once on upgrade because the config checksum
+  annotation includes the chart-version label — the openclaw.json is unchanged.)
+- **The initiatives agent** can drop its `postRenderers` (TLS env +
+  securityContext) and its standalone `network-policy.yaml` in favor of
+  `tls.verify: true`, `securityContext.capabilities.drop:["ALL"]`, and
+  `networkPolicy.enabled: true` — land that in homelab-talos AFTER the Flux
+  `GitRepository` picks up 0.7.0 (see the PR body for the exact diff).
+- **clawgate vendors a copy of this chart** at
+  `homelab-talos/containers/clawgate/internal/agents/chart/kubeclaw` — sync it
+  after adopting this release.
+
 ## [0.6.0] — 2026-07-25
 
 Latest-OpenClaw compatibility: native MCP registration + a restricted-egress

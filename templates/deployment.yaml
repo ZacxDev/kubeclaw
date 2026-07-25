@@ -42,10 +42,18 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.snapshots.save.terminationGracePeriodSeconds | default 300 }}
       {{- end }}
       hostname: {{ .Values.agentName | default (include "kubeclaw.fullname" .) | trunc 52 }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: agent
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command:
             - /bin/sh
             - -c
@@ -1055,8 +1063,13 @@ http.server.HTTPServer(("0.0.0.0", 18790), H).serve_forever()
           env:
             - name: NODE_OPTIONS
               value: "--unhandled-rejections=none"
+            # TLS certificate verification for outbound Node.js (openclaw) connections.
+            # tls.verify=false (default) → "0" = verification DISABLED (the chart's
+            # historical behavior — preserved so no existing agent breaks on upgrade).
+            # tls.verify=true → "1" = verification ENABLED (recommended; for internal
+            # self-signed endpoints supply a CA bundle via extraEnv NODE_EXTRA_CA_CERTS).
             - name: NODE_TLS_REJECT_UNAUTHORIZED
-              value: "0"
+              value: {{ if (.Values.tls | default dict).verify }}"1"{{ else }}"0"{{ end }}
             - name: GIT_EMAIL
               value: {{ .Values.git.email | quote }}
             - name: GIT_NAME

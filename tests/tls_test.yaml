@@ -1,0 +1,36 @@
+suite: TLS verification (NODE_TLS_REJECT_UNAUTHORIZED)
+templates:
+  - templates/deployment.yaml
+  - templates/configmap.yaml
+  - templates/configmap-skills.yaml
+  - templates/configmap-workspace.yaml
+  - templates/configmap-workspace-content.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: keeps TLS verification OFF by default (backward compatible = "0")
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NODE_TLS_REJECT_UNAUTHORIZED
+            value: "0"
+
+  - it: enables TLS verification when tls.verify=true (renders "1")
+    template: templates/deployment.yaml
+    set:
+      tls:
+        verify: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NODE_TLS_REJECT_UNAUTHORIZED
+            value: "1"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: NODE_TLS_REJECT_UNAUTHORIZED
+            value: "0"

@@ -1,0 +1,64 @@
+suite: securityContext and podSecurityContext
+templates:
+  - templates/deployment.yaml
+  - templates/configmap.yaml
+  - templates/configmap-skills.yaml
+  - templates/configmap-workspace.yaml
+  - templates/configmap-workspace-content.yaml
+set:
+  agentName: testbot
+  existingSecret: devpod-secrets
+tests:
+  - it: applies the safe container securityContext baseline by default
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: does NOT drop capabilities by default (apt/dpkg-safe)
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext.capabilities
+
+  - it: drops ALL capabilities only when explicitly set (opt-in)
+    template: templates/deployment.yaml
+    set:
+      securityContext:
+        allowPrivilegeEscalation: false
+        seccompProfile:
+          type: RuntimeDefault
+        capabilities:
+          drop: ["ALL"]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop[0]
+          value: ALL
+
+  - it: renders no container securityContext when disabled with null (pre-0.7.0 behavior)
+    template: templates/deployment.yaml
+    set:
+      securityContext: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext
+
+  - it: has no pod-level securityContext by default
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+
+  - it: renders pod-level securityContext when set
+    template: templates/deployment.yaml
+    set:
+      podSecurityContext:
+        fsGroup: 0
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 0
