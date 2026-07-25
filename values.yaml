@@ -232,13 +232,22 @@ channels:
 
 # -- MCP servers registered with OpenClaw.
 # Each server runs as a stdio child process of the agent.
+#
+# The chart emits these under the native `mcp.servers.<name>` config key
+# (verified against `openclaw config schema` on 2026.7.1-2 AND 2026.6.1).
+# NOTE: the chart historically emitted a top-level `mcpServers` key, which
+# BOTH 2026.7.x and 2026.6.1 reject ("<root>: Invalid input") — that is why
+# this used to default OFF. The key is now correct, so it can be enabled.
+# The stdio `transport` field is intentionally omitted: 2026.6.1's schema
+# only allows transport "sse"/"streamable-http" and infers stdio from
+# `command`, while 2026.7.x additionally accepts an explicit "stdio".
+# Omitting it is accepted by both versions.
 mcpServers:
   clankTask:
     # -- Enable the clank-task MCP server (typed task operations).
-    # Default OFF: openclaw 2026.6.x rejects the `mcpServers` root key this
-    # chart emits ("Unrecognized key: mcpServers") → invalid config, gateway
-    # won't start. Re-enabling needs the MCP registration emitted in the
-    # 2026.6.x schema (tracked as a follow-up).
+    # Registers `mcp.servers.clank-task` (stdio child process running
+    # /usr/local/bin/clank-task-mcp). Default OFF — enable per agent that
+    # needs typed task operations.
     enabled: false
 
 # -- Tools configuration
@@ -392,6 +401,27 @@ config:
   #                      CrashLoopBackOffs and Flux/k8s surface it as not-ready.
   #   ignore          — today's silent behavior; no detection, no banner.
   onRevert: "warn"
+
+  # -- Whether OpenClaw checks registry.npmjs.org for OpenClaw + per-plugin
+  # updates when the gateway starts and during `openclaw doctor --fix`.
+  # Emitted as `update.checkOnStart` in openclaw.json (valid on both
+  # openclaw 2026.6.1 and 2026.7.x).
+  #
+  # DEFAULT false. On openclaw >= 2026.6.11 this update-check does a blocking
+  # per-plugin registry fetch (registry.npmjs.org/<pkg>/latest). For hardened
+  # agents whose egress NetworkPolicy does NOT allowlist registry.npmjs.org,
+  # the fetch has no route and HANGS (per-plugin, ~2.5s each × ~49 stock
+  # plugins) → `openclaw doctor --fix` never completes → the gateway never
+  # binds :18789 → the pod CrashLoopBackOffs past its startupProbe budget.
+  # (Verified 2026-07-25 against openclaw 2026.7.1-2 with the npm registry
+  # black-holed: check ON → doctor hangs; check OFF → doctor completes in ~9s
+  # and the gateway makes ZERO registry calls.)
+  #
+  #   false (default) — safe for restricted-egress agents; no npm registry
+  #                     calls at startup. Agents won't surface update hints.
+  #   true            — original behavior; requires registry.npmjs.org egress
+  #                     (allowlist it in the NetworkPolicy) or startup hangs.
+  updateCheckOnStart: false
 
 # -- Persistence configuration
 persistence:

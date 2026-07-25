@@ -12,6 +12,53 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-25
+
+Latest-OpenClaw compatibility: native MCP registration + a restricted-egress
+doctor/gateway startup fix. Verified against OpenClaw **2026.7.1-2** (current
+npm `latest`) AND **2026.6.1** (the backward-compat floor — the initiatives
+agent's image).
+
+### Fixed
+- **MCP servers used a rejected config key.** The chart emitted a top-level
+  `mcpServers` block, which BOTH 2026.7.x and 2026.6.1 reject as an
+  unrecognized root key (`config validate` → `<root>: Invalid input`) — so the
+  clank-task MCP server could never actually be enabled. MCP servers are now
+  emitted under OpenClaw's native `mcp.servers.<name>` key (confirmed against
+  `openclaw config schema` on both versions). The stdio `transport` field is
+  omitted: 2026.6.1's schema only allows `transport` `sse`/`streamable-http`
+  and infers stdio from `command`, while 2026.7.x also accepts an explicit
+  `stdio` — omitting it validates on both. `mcpServers.clankTask.enabled=true`
+  now renders a config that `openclaw doctor --fix` accepts and preserves.
+  *(The values key stays `mcpServers.clankTask.enabled` — only the rendered
+  JSON key changed, so existing releases need no values edit.)*
+- **`openclaw doctor --fix` / gateway hang under restricted egress
+  (openclaw >= 2026.6.11).** Newer OpenClaw does a blocking per-plugin
+  npm-registry update-check (`registry.npmjs.org/<pkg>/latest`) at gateway
+  start and in `doctor --fix`. For agents whose egress NetworkPolicy does not
+  allowlist `registry.npmjs.org`, each fetch has no route and hangs
+  (~2.5s × ~49 stock plugins) → doctor never completes → the gateway never
+  binds `:18789` → CrashLoopBackOff past the startupProbe budget. The chart now
+  emits `update.checkOnStart` (new value `config.updateCheckOnStart`,
+  **default `false`**), which disables the check natively. Verified 2026-07-25
+  on 2026.7.1-2 with the npm registry black-holed to an unroutable IP:
+  check ON → `doctor --fix` times out (90s, rc=124); check OFF → completes in
+  ~8s (rc=0) with **zero** registry fetches and the gateway binds `:18789`.
+  `OPENCLAW_OFFLINE=1` was tested and does **not** gate this check.
+
+### Upgrade notes
+- `config.updateCheckOnStart` defaults to `false` (no npm registry calls at
+  startup — safe for hardened, restricted-egress agents; they simply won't
+  surface update hints). Set it to `true` only for agents that allowlist
+  `registry.npmjs.org` in their NetworkPolicy and want update checks.
+- To enable the clank-task MCP server, set `mcpServers.clankTask.enabled=true`
+  (now that the emitted key is correct). Schema-accepted on both openclaw
+  versions; the live MCP tool round-trip to the clank-resolver API was not
+  exercised in chart CI.
+- **clawgate vendors a copy of this chart** at
+  `homelab-talos/containers/clawgate/internal/agents/chart/kubeclaw` — sync it
+  after adopting this release.
+
 ## [0.5.2] — 2026-06-07
 
 openclaw 2026.6.x email-plugin compatibility fix.
