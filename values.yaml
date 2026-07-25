@@ -254,7 +254,13 @@ mcpServers:
 tools:
   web:
     search:
-      # -- Enable web search
+      # -- Enable web search (rendered to tools.web.search.enabled in
+      # openclaw.json). Set false for restricted-egress / hardened agents that
+      # don't need web search — it also avoids the web-search plugin's
+      # provider-fetch, one of the outbound calls `openclaw doctor --fix` makes
+      # at startup that can hang an agent whose egress NetworkPolicy doesn't
+      # allowlist the search provider. (Already a first-class value — no
+      # agent.defaults passthrough needed.)
       enabled: true
       # -- Search provider
       provider: "brave"
@@ -445,6 +451,102 @@ resources:
   limits:
     memory: "3Gi"
     cpu: "2000m"
+
+# =============================================================================
+# Fleet hardening (securityContext / TLS / NetworkPolicy)
+# =============================================================================
+
+# -- Container securityContext, merged verbatim onto the `agent` container.
+# DEFAULT = the safe baseline that breaks NO existing agent on upgrade:
+#   allowPrivilegeEscalation: false  — blocks setuid privilege escalation.
+#   seccompProfile.type: RuntimeDefault — the standard syscall allowlist.
+# Neither breaks apt/dpkg/git or the openclaw gateway (verified by gateway-start
+# on openclaw 2026.6.1 AND 2026.7.1-2). To ship NO container securityContext
+# (pre-0.7.0 behavior) set this to `null` — an empty `{}` does NOT clear it
+# (Helm deep-merges maps, so the default keys survive; `null` overrides).
+#
+# capabilities.drop:["ALL"] is deliberately NOT in the default: it removes
+# CHOWN/DAC_OVERRIDE/FOWNER, which breaks `apt-get install` / dpkg at container
+# init on images that install packages at runtime (e.g. infraTools, or an
+# extraInitCommands apt install). Agents whose runtime deps are BAKED INTO the
+# image (no apt-at-init) can opt into the fully-hardened block below.
+securityContext:
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+  # --- Fully-hardened example (opt-in — drops ALL Linux capabilities) ---
+  # Only safe when the image installs NO packages at runtime (deps baked in).
+  # capabilities:
+  #   drop: ["ALL"]
+  # readOnlyRootFilesystem is NOT recommended: the chart writes to
+  # /root/.openclaw|.ssh|.kube|.config and /usr/local/bin at init.
+
+# -- Pod-level securityContext (spec.template.spec.securityContext).
+# EMPTY default (`{}`) → no pod securityContext, so nothing changes on upgrade.
+# NOTE: do NOT set runAsNonRoot/runAsUser here without reworking the image —
+# the startup script hardcodes writes to /root/.openclaw, /root/.ssh, /root/.kube
+# and installs binaries into /usr/local/bin, all of which assume UID 0. Provided
+# for future non-root work.
+podSecurityContext: {}
+
+# -- Outbound TLS verification for Node.js (the openclaw runtime).
+tls:
+  # -- Verify TLS certificates on outbound connections.
+  # false (DEFAULT) → NODE_TLS_REJECT_UNAUTHORIZED=0 (verification OFF — the
+  #   chart's historical hardcoded behavior; preserved so no agent breaks on
+  #   upgrade). RECOMMENDED to flip to true per-agent.
+  # true → NODE_TLS_REJECT_UNAUTHORIZED=1 (verification ON). Agents that hit
+  #   only valid-CA endpoints (OpenRouter/GitHub/Matrix/npm) are unaffected.
+  #   For an internal self-signed endpoint, mount its CA and point
+  #   NODE_EXTRA_CA_CERTS at it via extraEnv rather than turning verify off.
+  verify: false
+
+# -- Egress NetworkPolicy for the agent pod. DEFAULT OFF — existing agents run
+# with no policy, and a default-deny egress would break them. When enabled the
+# chart renders a **CiliumNetworkPolicy** (cilium.io/v2), EGRESS-ONLY (ingress
+# stays default-allow so the gateway port-forward and probes keep working).
+networkPolicy:
+  # -- Enable the egress NetworkPolicy.
+  enabled: false
+  # -- Render a CiliumNetworkPolicy. REQUIRED (must stay true) whenever enabled:
+  # the allowlist uses FQDN egress (toFQDNs), which a plain networking.k8s.io
+  # NetworkPolicy CANNOT express. Homelab CNI is Cilium. On a non-Cilium cluster
+  # you must hand-author a plain policy outside the chart (setting this false
+  # while enabled fails the render with a clear message).
+  cilium: true
+  egress:
+    # -- Always-allow DNS to kube-dns. REQUIRED for toFQDNs (the DNS-visibility
+    # `rules.dns` lets Cilium resolve the allowlisted hostnames). Leave true.
+    allowKubeDns: true
+    # -- kube-dns pod selector (namespace + k8s-app label). Homelab defaults.
+    kubeDns:
+      namespace: kube-system
+      k8sApp: kube-dns
+    # -- Always-allow the Kubernetes API server (openclaw runtime / SA token).
+    allowKubeApiserver: true
+    # -- Extra Cilium entities to allow (e.g. ["cluster"]). Usually empty.
+    entities: []
+    # -- FQDN egress allowlist. Each entry is a hostname string; one containing
+    # `*` renders as a Cilium `matchPattern`, otherwise `matchName`. (A raw
+    # Cilium selector map, e.g. {matchName: "x"}, is also passed through.)
+    fqdns: []
+    #   - "openrouter.ai"
+    #   - "*.openrouter.ai"
+    #   - "github.com"
+    #   - "*.githubusercontent.com"
+    # -- Ports applied to the FQDN egress rule.
+    fqdnPorts:
+      - port: "443"
+        protocol: TCP
+    # -- In-cluster endpoint egress. Each entry: { namespace, labels{}, ports[] }.
+    # Labels are the pod's plain labels (the chart adds Cilium's k8s: prefix).
+    endpoints: []
+    #   - namespace: mailbox
+    #     labels:
+    #       app: mailbox-postgres
+    #     ports:
+    #       - port: "5432"
+    #         protocol: TCP
 
 # -- Workflow orchestration image (used by CronJob pods to exec into agent)
 workflowImage:
