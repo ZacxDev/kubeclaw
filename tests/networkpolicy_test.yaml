@@ -10,6 +10,15 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: FAILS render when enabled with an empty allowlist (silent-brick guard)
+    set:
+      networkPolicy:
+        enabled: true
+        egress: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: "networkPolicy.enabled=true but egress has no fqdns/endpoints/entities. With only DNS+apiserver reachable this default-denies all real egress — the agent cannot reach its model endpoint (OpenRouter/Anthropic) or any service and will be BRICKED (and it looks connected because DNS still resolves). Add networkPolicy.egress.fqdns (e.g. your model host) and/or .endpoints. To intentionally allow ALL egress, leave networkPolicy.enabled=false."
+
   - it: renders a valid CiliumNetworkPolicy when enabled
     set:
       networkPolicy:

@@ -4,6 +4,9 @@
 {{- end }}
 {{- $np := .Values.networkPolicy }}
 {{- $egress := $np.egress | default dict }}
+{{- if not (or $egress.fqdns $egress.endpoints $egress.entities) }}
+{{- fail "networkPolicy.enabled=true but egress has no fqdns/endpoints/entities. With only DNS+apiserver reachable this default-denies all real egress — the agent cannot reach its model endpoint (OpenRouter/Anthropic) or any service and will be BRICKED (and it looks connected because DNS still resolves). Add networkPolicy.egress.fqdns (e.g. your model host) and/or .endpoints. To intentionally allow ALL egress, leave networkPolicy.enabled=false." }}
+{{- end }}
 # EGRESS-ONLY CiliumNetworkPolicy for the agent pod.
 #
 # Threat model: prompt-injection / a hijacked agent exfiltrating secrets or the
