@@ -12,6 +12,19 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-07-25
+
+### Changed
+- **NetworkPolicy: fail-loud on an empty allowlist.** `networkPolicy.enabled=true` with no
+  `egress.fqdns`/`endpoints`/`entities` now **fails template render** with a clear message,
+  instead of silently rendering a default-deny egress that only reaches DNS+apiserver and
+  bricks the agent (it looks connected because DNS still resolves). Prevents the silent-brick
+  foot-gun. To intentionally allow all egress, leave `networkPolicy.enabled=false`.
+- **Docs: GitHub host set.** `matchName` is exact-host, so `github.com` does NOT cover
+  `api.github.com` (gh CLI) or `codeload.github.com` (git archive/clone). The values.yaml and
+  `ci/full-values.yaml` examples now list the full set so a per-agent config doesn't
+  accidentally block `gh`/git.
+
 ## [0.7.0] — 2026-07-25
 
 Fleet-hardening as first-class values. Agents can now be hardened through clean

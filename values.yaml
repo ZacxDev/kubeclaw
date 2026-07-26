@@ -532,8 +532,11 @@ networkPolicy:
     fqdns: []
     #   - "openrouter.ai"
     #   - "*.openrouter.ai"
-    #   - "github.com"
-    #   - "*.githubusercontent.com"
+    #   # NOTE: matchName is EXACT-host — for GitHub, list every host the agent uses:
+    #   - "github.com"            # git over https
+    #   - "api.github.com"        # gh CLI
+    #   - "codeload.github.com"   # git archive / some clones
+    #   - "*.githubusercontent.com"  # raw / release assets
     # -- Ports applied to the FQDN egress rule.
     fqdnPorts:
       - port: "443"

@@ -175,6 +175,8 @@ networkPolicy:
       - "openrouter.ai"
       - "*.githubusercontent.com"
       - "github.com"
+      - "api.github.com"
+      - "codeload.github.com"
     fqdnPorts:
       - port: "443"
         protocol: TCP
