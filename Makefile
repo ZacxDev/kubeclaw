@@ -1,7 +1,7 @@
 CHART_DIR := .
 RELEASE_NAME := test
 
-.PHONY: lint test test-shell template template-all clean
+.PHONY: lint test test-shell template template-all template-fleet clean
 
 lint:
 	helm lint $(CHART_DIR) --set agentName=test
@@ -29,6 +29,14 @@ template-all:
 	@echo ""
 	@echo "=== infrastructure ==="
 	helm template $(RELEASE_NAME) $(CHART_DIR) -f examples/infrastructure.yaml
+
+# Render the three-agent fleet example. Each agent is a different RBAC tier
+# and egress posture from the same chart.
+template-fleet:
+	@for a in reviewer ops-readonly orchestrator; do \
+		echo "=== $$a ==="; \
+		helm template $$a $(CHART_DIR) -f $(CHART_DIR)/examples/fleet/$$a.yaml || exit 1; \
+	done
 
 clean:
 	rm -rf $(CHART_DIR)/charts $(CHART_DIR)/Chart.lock

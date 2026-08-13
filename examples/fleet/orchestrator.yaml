@@ -1,0 +1,120 @@
+# Fleet agent 3/3 — scheduled orchestrator.
+#
+# Highest trust tier in this fleet. Holds the scoped orchestrator ClusterRole
+# (cross-namespace read + exec + job create) and runs a nightly workflow.
+# Its workspace is snapshotted to S3 and its logs ship to Loki.
+#
+# Still NOT cluster-admin, and still egress-restricted — a privileged agent
+# is not an unbounded one.
+agentName: orchestrator
+
+git:
+  email: "orchestrator@example.com"
+  name: "Orchestrator (DevPod)"
+  repos:
+    - url: "git@github.com:yourorg/platform.git"
+      path: "/data/repos/platform"
+      branch: "trunk"
+
+agent:
+  model:
+    primary: "anthropic/claude-sonnet-4"
+  maxConcurrent: 2
+
+channels:
+  telegram:
+    enabled: true
+
+# --- RBAC: scoped cross-namespace, NOT cluster-admin. ---
+rbac:
+  orchestrator:
+    enabled: true
+
+infraTools:
+  enabled: true
+
+persistence:
+  enabled: true
+  size: 20Gi
+
+# --- Scheduled work. Each workflow renders its own CronJob. ---
+workflows:
+  nightly-fleet-report:
+    schedule: "0 6 * * *"
+    timeout: 1800
+    gitSync: true
+    context:
+      SCOPE: "all namespaces"
+    report:
+      path: "reports/fleet-{{date}}.md"
+      commit: true
+      branch: "trunk"
+    steps:
+      - name: collect
+        timeout: 600
+        skill: |
+          Survey every devpod-* namespace. For each agent report pod status,
+          restart count, and the last error in its logs.
+      - name: summarize
+        timeout: 300
+        notify: true
+        skill: |
+          Summarize the collect step into a short fleet health report.
+          Lead with anything that regressed since yesterday.
+
+# --- Durable workspace. ---
+snapshots:
+  enabled: true
+  provider: s3
+  bucket: kubeclaw-snapshots
+  paths:
+    - /data/workspace
+    - /data/repos/platform
+  save:
+    schedule: "0 */6 * * *"
+    onShutdown: true
+  retention:
+    maxCount: 10
+  encryption:
+    enabled: true
+  credentials:
+    existingSecret: snapshot-credentials
+
+logShipping:
+  enabled: true
+
+# --- Hardening: baseline. Caps kept for the same reason as ops-readonly
+# (infraTools + the rclone .deb install both write at container init). ---
+securityContext:
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+
+tls:
+  verify: true
+
+networkPolicy:
+  enabled: true
+  egress:
+    fqdns:
+      - "github.com"
+      - "api.github.com"
+      - "codeload.github.com"
+      - "*.githubusercontent.com"
+      - "dl.k8s.io"
+      - "fluxcd.io"
+      - "downloads.rclone.org"      # snapshot tooling
+      - "s3.amazonaws.com"          # snapshot target
+      - "*.s3.amazonaws.com"
+      - "api.anthropic.com"
+      - "api.telegram.org"
+    endpoints:
+      # Loki, for the log-shipping sidecars' collector.
+      - namespace: monitoring
+        labels:
+          app: loki
+        ports:
+          - port: "3100"
+            protocol: TCP
+
+existingSecret: devpod-secrets

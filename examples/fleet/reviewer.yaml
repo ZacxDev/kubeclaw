@@ -1,0 +1,61 @@
+# Fleet agent 1/3 — code reviewer.
+#
+# Lowest trust tier, tightest blast radius, fewest moving parts.
+# Reads repos and talks on Telegram. It has no cluster access beyond its own
+# namespace and cannot reach any host outside GitHub + the model provider.
+agentName: reviewer
+
+git:
+  email: "reviewer@example.com"
+  name: "Reviewer (DevPod)"
+  repos:
+    - url: "git@github.com:yourorg/myproject.git"
+      path: "/data/repos/myproject"
+      branch: "main"
+
+agent:
+  model:
+    primary: "anthropic/claude-sonnet-4"
+
+channels:
+  telegram:
+    enabled: true
+
+skills:
+  review.md: |
+    ---
+    name: Review
+    description: Review open pull requests
+    user-invocable: true
+    ---
+    # Review
+    Review open PRs in /data/repos/myproject. Comment on correctness and
+    test coverage. Do not push commits.
+
+# --- RBAC: default tier. No rbac.* overrides = namespace reader only. ---
+
+# --- Hardening: fully locked down. ---
+# Capabilities can be dropped here because this agent installs nothing at
+# runtime — no infraTools, no snapshots. Its deps are baked into the image.
+securityContext:
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+  capabilities:
+    drop: ["ALL"]
+
+tls:
+  verify: true
+
+networkPolicy:
+  enabled: true
+  egress:
+    fqdns:
+      - "github.com"                # git over https
+      - "api.github.com"            # gh CLI
+      - "codeload.github.com"       # git archive / some clones
+      - "*.githubusercontent.com"   # raw + release assets
+      - "api.anthropic.com"         # model provider
+      - "api.telegram.org"          # channel
+
+existingSecret: devpod-secrets
