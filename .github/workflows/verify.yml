@@ -1,0 +1,144 @@
+name: verify
+
+# The chart had no CI at all until this file. Four verification tiers existed
+# in the Makefile and none of them ran automatically, so every gate was opt-in
+# and protected only whoever remembered to run it locally.
+#
+# This matters more here than in a typical repo: the chart encodes several
+# workarounds pinned to specific OpenClaw dot-releases, so silent drift is the
+# expected failure mode rather than an unusual one.
+
+on:
+  pull_request:
+  push:
+    branches: [trunk]
+
+# A second push to a PR makes the first run's verdict irrelevant. NOT on
+# pushes: cancelling a trunk run means that commit never gets diffed at all,
+# and merging two PRs back-to-back would silently skip the first one.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Read-only by default today, but pin it: this job executes PR-authored code
+# (Makefile recipes, scripts/render-diff.py, tests/shell/run.sh), so a future
+# repo or org setting flip must not silently hand it a write token.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # render-diff and byte-diff `git archive` a base ref, so the full
+          # history has to be present. With the default depth-1 checkout they
+          # fail outright rather than silently comparing nothing.
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: Install helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v0.6.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install --disable-pip-version-check pyyaml
+
+      # Fail loudly and early if the toolchain is incomplete. Without this a
+      # missing tool surfaces as a confusing mid-run error, and historically
+      # (see the byte-diff fix in 0.8.0) as a gate that reports success while
+      # testing nothing.
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          helm version --short
+          helm unittest --help >/dev/null
+          jq --version
+          python3 -c 'import yaml; print("pyyaml", yaml.__version__)'
+
+      - name: Lint
+        run: make lint
+
+      # COUNT FLOOR, not just exit status. `helm unittest .` exits 0 when it
+      # finds NO test files, so renaming tests/ or breaking the *_test.yaml
+      # match would turn the largest tier into a no-op that reports success.
+      # A zero is indistinguishable from a pass without asserting the number.
+      - name: Unit tests
+        run: |
+          set -euo pipefail
+          make test | tee /tmp/unit.log
+          n=$(grep -oE 'Tests:[[:space:]]+[0-9]+ passed' /tmp/unit.log | grep -oE '[0-9]+' | head -1 || true)
+          echo "unit tests passed: ${n:-0}"
+          if [ "${n:-0}" -lt 180 ]; then
+            echo "FATAL: expected >=180 unit tests, saw ${n:-0} — the suite is probably not discovering its test files"
+            exit 1
+          fi
+
+      # Executes the rendered startup script under sh against fixtures —
+      # covers logic helm-unittest structurally cannot reach.
+      # Same floor rationale: run.sh's final check is `[ "$FAIL" -eq 0 ]`, so
+      # zero checks executed also exits 0.
+      - name: Shell tests
+        run: |
+          set -euo pipefail
+          make test-shell | tee /tmp/shell.log
+          n=$(grep -oE 'RESULT: [0-9]+ passed' /tmp/shell.log | grep -oE '[0-9]+' | head -1 || true)
+          echo "shell checks passed: ${n:-0}"
+          if [ "${n:-0}" -lt 12 ]; then
+            echo "FATAL: expected >=12 shell checks, saw ${n:-0}"
+            exit 1
+          fi
+
+      # Which ref the diff gates compare against.
+      #   PR   -> the merge commit's FIRST PARENT, i.e. exactly the base commit
+      #           this merge was computed against. Re-resolving the base branch
+      #           by name would pick up trunk's *current* tip, so an unrelated
+      #           PR merged in between would be attributed to this one.
+      #   push -> github.event.before, the actual previous tip. HEAD~1 only
+      #           covers the top commit, so a rebase-merge or a multi-commit
+      #           push would leave the intermediate trees never diffed.
+      - name: Resolve diff ref
+        id: ref
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            ref=$(git rev-parse HEAD^1)
+          elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] \
+               && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            ref="$BEFORE"
+          else
+            # First push to a new branch, or the before-SHA is unreachable.
+            ref="HEAD~1"
+          fi
+          echo "comparing against: $ref ($(git log -1 --format=%s "$ref" 2>/dev/null || echo unknown))"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      # Semantics of the generated openclaw.json. Runs its own negative control
+      # first and refuses to compare until it has proven it can detect a
+      # difference.
+      - name: Render diff (semantic)
+        run: make render-diff REF=${{ steps.ref.outputs.ref }}
+
+      # Bytes of every rendered manifest, with the chart version normalised.
+      # Catches what render-diff structurally cannot: checksum/config hashes
+      # the whole rendered configmap.yaml, so a stray newline rolling-restarts
+      # the fleet while the config's meaning is unchanged.
+      - name: Byte diff
+        run: make byte-diff REF=${{ steps.ref.outputs.ref }}
+
+      - name: Render all examples
+        run: |
+          set -euo pipefail
+          make template-all >/dev/null
+          make template-fleet >/dev/null
+          echo "all examples rendered"
