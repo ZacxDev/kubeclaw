@@ -352,7 +352,8 @@ Drop a `.snapshotignore` file (rclone exclude patterns, one per line) in a snaps
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `rawConfig` | `{}` | Full `openclaw.json` override (bypasses templating) |
+| `configOverlay` | `{}` | **Additive** overlay deep-merged onto the generated `openclaw.json`. Set or override individual keys while keeping everything the chart generates. Nested maps merge key-by-key; lists are replaced wholesale |
+| `rawConfig` | `{}` | Full `openclaw.json` **replacement** (bypasses templating entirely). Prefer `configOverlay` — reach for this only to author the config from scratch. Setting both fails the render |
 | `extraConfigMaps` | `[]` | Additional ConfigMaps: `[{name, mountPath, data}]` |
 | `extraVolumes` | `[]` | Extra pod volumes |
 | `extraVolumeMounts` | `[]` | Extra container volume mounts |

@@ -62,6 +62,90 @@ tests:
       - matchRegex:
           path: data["openclaw.json"]
           pattern: '"custom"'
+      # rawConfig REPLACES. Assert chart-generated keys are gone — matching
+      # only on "custom" would pass even if the templated config leaked in.
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"maxConcurrent"'
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"mentionPatterns"'
+
+  # --- configOverlay: additive merge onto the generated config ---
+
+  - it: configOverlay adds a key without dropping its siblings
+    set:
+      configOverlay:
+        agents:
+          defaults:
+            timeoutSeconds: 600
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"timeoutSeconds":600'
+      # The whole point: chart-generated siblings survive the merge.
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"maxConcurrent":4'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"primary":"anthropic/claude-sonnet-4"'
+
+  - it: configOverlay overrides a nested leaf and keeps the rest of the subtree
+    set:
+      configOverlay:
+        gateway:
+          mode: remote
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"mode":"remote"'
+      # gateway.http.* is generated, not in the overlay, and must survive.
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"chatCompletions":\{"enabled":true\}'
+
+  - it: configOverlay can override a value the chart itself generated
+    set:
+      agent:
+        maxConcurrent: 4
+      configOverlay:
+        agents:
+          defaults:
+            maxConcurrent: 99
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"maxConcurrent":99'
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"maxConcurrent":4'
+
+  # INVARIANT GUARD, not regression coverage: this passes on pre-change code
+  # too. It pins the byte-identity that keeps checksum/config stable on
+  # upgrade — if someone later routes the no-overlay case through the merge
+  # path, the compact form would land here and this goes red.
+  - it: empty configOverlay renders the generated config untouched
+    set:
+      configOverlay: {}
+    asserts:
+      # No overlay => the verbatim text path, so the pretty-printed (spaced)
+      # form is emitted rather than the compact merged form.
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"maxConcurrent": 4'
+
+  - it: setting both rawConfig and configOverlay fails the render
+    set:
+      rawConfig:
+        custom: true
+      configOverlay:
+        agents:
+          defaults:
+            timeoutSeconds: 600
+    asserts:
+      - failedTemplate:
+          errorMessage: "kubeclaw: set either rawConfig (full replacement) or configOverlay (additive merge), not both. configOverlay is the composable option — prefer it unless you need to author openclaw.json from scratch."
 
   - it: should generate repos.json
     set:

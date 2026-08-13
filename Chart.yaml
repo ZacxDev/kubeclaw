@@ -1,8 +1,8 @@
 apiVersion: v2
 name: kubeclaw
-description: A Helm chart for deploying OpenClaw AI agent devpods
+description: A lightweight, composable Kubernetes control plane for OpenClaw AI agents
 type: application
-version: 0.7.1
+version: 0.8.0
 appVersion: "latest"
 maintainers:
   - name: Zach

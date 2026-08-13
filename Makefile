@@ -1,7 +1,7 @@
 CHART_DIR := .
 RELEASE_NAME := test
 
-.PHONY: lint test test-shell template template-all template-fleet clean
+.PHONY: lint test test-shell render-diff template template-all template-fleet clean
 
 lint:
 	helm lint $(CHART_DIR) --set agentName=test
@@ -29,6 +29,26 @@ template-all:
 	@echo ""
 	@echo "=== infrastructure ==="
 	helm template $(RELEASE_NAME) $(CHART_DIR) -f examples/infrastructure.yaml
+
+# Semantic render diff of the generated openclaw.json against a git ref
+# (default: trunk). Use before/after ANY change to config generation — unit
+# assertions on rendered text cannot catch a config whose meaning moved.
+# Runs the harness's own negative control first; `compare` refuses to run
+# until that has demonstrated it can detect a difference.
+#   make render-diff            # vs trunk
+#   make render-diff REF=v0.7.1 # vs a tag
+REF ?= trunk
+render-diff:
+	@python3 $(CHART_DIR)/scripts/render-diff.py selftest
+	@tmp=$$(mktemp -d); \
+	 mkdir -p $$tmp/ref && git -C $(CHART_DIR) archive $(REF) | tar -x -C $$tmp/ref; \
+	 cp $(CHART_DIR)/scripts/render-diff.py $$tmp/ref/scripts/ 2>/dev/null || \
+	   (mkdir -p $$tmp/ref/scripts && cp $(CHART_DIR)/scripts/render-diff.py $$tmp/ref/scripts/); \
+	 touch $$tmp/ref/.selftest-passed; \
+	 echo "--- capturing $(REF) ---"; python3 $$tmp/ref/scripts/render-diff.py capture $$tmp/a; \
+	 echo "--- capturing working tree ---"; python3 $(CHART_DIR)/scripts/render-diff.py capture $$tmp/b; \
+	 echo "--- comparing ---"; python3 $(CHART_DIR)/scripts/render-diff.py compare $$tmp/a $$tmp/b; \
+	 rc=$$?; rm -rf $$tmp; exit $$rc
 
 # Render the three-agent fleet example. Each agent is a different RBAC tier
 # and egress posture from the same chart.

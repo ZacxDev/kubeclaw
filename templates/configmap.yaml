@@ -1,15 +1,18 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "kubeclaw.fullname" . }}-config
-  namespace: {{ include "kubeclaw.namespace" . }}
-  labels:
-    {{- include "kubeclaw.labels" . | nindent 4 }}
-data:
-  openclaw.json: |
-    {{- if .Values.rawConfig }}
-    {{ .Values.rawConfig | toJson | indent 4 }}
-    {{- else }}
+{{- /*
+  rawConfig REPLACES the generated config; configOverlay MERGES onto it.
+  Setting both is ambiguous, so fail the render rather than silently picking
+  one (same fail-loud posture as the NetworkPolicy guards).
+*/ -}}
+{{- if and .Values.rawConfig .Values.configOverlay }}
+{{- fail "kubeclaw: set either rawConfig (full replacement) or configOverlay (additive merge), not both. configOverlay is the composable option — prefer it unless you need to author openclaw.json from scratch." }}
+{{- end }}
+{{- /*
+  The generated config lives in a named template so it can be consumed three
+  ways below. Emitted as text (not a dict) because the overlay path parses it
+  with fromJson — which also means a malformed conditional here now fails the
+  render instead of shipping invalid JSON to the pod.
+*/ -}}
+{{- define "kubeclaw.configJson" }}
     {
       "agents": {
         "defaults": {
@@ -198,6 +201,29 @@ data:
         ]
       }
     }
+{{- /*
+  `-}}` here is load-bearing: it trims the newline this define would otherwise
+  leave at the top of the rendered file. checksum/config hashes this template's
+  full rendered output, so a stray leading newline changes the annotation and
+  rolling-restarts every agent in the fleet on upgrade for a byte-identical
+  ConfigMap. Verified by scripts/render-diff.py + a manifest byte-compare.
+*/ -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-config
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+data:
+  openclaw.json: |
+    {{- if .Values.rawConfig }}
+    {{ .Values.rawConfig | toJson | indent 4 }}
+    {{- else if .Values.configOverlay }}
+    {{ mergeOverwrite (include "kubeclaw.configJson" . | fromJson) .Values.configOverlay | toJson | indent 4 }}
+    {{- else }}
+    {{- include "kubeclaw.configJson" . }}
     {{- end }}
   repos.json: |
     {{ .Values.git.repos | toJson }}

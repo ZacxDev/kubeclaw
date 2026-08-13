@@ -12,6 +12,58 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-13
+
+Composable config. `openclaw.json` can now be adjusted key-by-key instead of
+all-or-nothing. **Purely additive** — a default-values render is byte-identical
+to 0.7.1, checksum annotation included, so upgrading restarts nothing.
+
+### Added
+- **`configOverlay`** — an additive overlay deep-merged onto the generated
+  `openclaw.json` (`mergeOverwrite`). Set or override individual keys while
+  keeping everything the chart resolves for you: workspace defaulting, mention
+  patterns, channel rendering, hook mappings. Nested maps merge key-by-key so
+  setting one leaf does not drop its siblings; **lists are replaced wholesale,
+  not appended**. This is the value to reach for when you need an OpenClaw
+  setting the chart doesn't model as first-class.
+- **`make render-diff`** — semantic render diff of the generated
+  `openclaw.json` against a git ref (`REF=`, default `trunk`), across all ten
+  value files in the repo. Renders both sides, parses the JSON, deep-compares.
+  Use it before/after any change to config generation: unit assertions on
+  rendered *text* cannot catch a config whose *meaning* moved. The harness
+  runs its own negative control first and **refuses to compare** until it has
+  demonstrated it can detect a one-nested-key difference.
+
+### Changed
+- **`rawConfig` is now documented as the escape hatch of last resort.** Its
+  behavior is **unchanged** — it still fully replaces the generated config.
+  It was deliberately *not* converted into a merge: consumers rely on
+  replacement, and silently merging would inject chart-generated keys into a
+  config authored from scratch.
+- **Setting both `rawConfig` and `configOverlay` now fails the render** with a
+  clear message rather than silently picking one (same fail-loud posture as
+  the 0.7.1 NetworkPolicy guards).
+- The generated config moved into a `kubeclaw.configJson` named template so
+  all three paths can consume it. When an overlay is in use the text is parsed
+  with `fromJson`, so a malformed conditional in the JSON block now fails the
+  render instead of shipping invalid JSON to the pod.
+
+### Fixed
+- **`hooks.allowedSessionKeyPrefixes` docs contradicted the template.** The
+  comment claimed an empty value auto-emits `"hook:element:"` plus
+  `"hook:email:"`; it actually emits the single prefix `"hook:"`, which covers
+  both. Behavior was always correct — the claim was not.
+
+### Upgrade notes
+Nothing to do. `configOverlay` defaults to `{}` and the no-overlay path emits
+the config verbatim, so every existing agent renders byte-identically —
+verified by `make render-diff` (10/10 identical) plus a full-manifest
+`sha256sum` comparison across five value files.
+
+Adopt `configOverlay` wherever a consumer currently sets `rawConfig` just to
+change one or two keys — that pattern gives up all chart-side config
+generation and is the thing this release exists to remove.
+
 ## [0.7.1] — 2026-07-25
 
 ### Changed
