@@ -73,9 +73,21 @@ byte-diff:
 	 git -C $(CHART_DIR) archive $(REF) | tar -x -C $$tmp/ref; \
 	 tar -c --exclude=./.git --exclude=./.venv --exclude=./.direnv -C $(CHART_DIR) . | tar -x -C $$tmp/wt; \
 	 sed -i 's/^version:.*/version: 0.0.0-bytediff/' $$tmp/ref/Chart.yaml $$tmp/wt/Chart.yaml; \
-	 rc=0; n=0; \
+	 missing=""; \
+	 for f in $$(cd $$tmp/ref && ls examples/*.yaml examples/fleet/*.yaml ci/*.yaml 2>/dev/null); do \
+	   [ -f "$$tmp/wt/$$f" ] || missing="$$missing $$f"; \
+	 done; \
+	 if [ -n "$$missing" ]; then \
+	   echo "FATAL: value files present in $(REF) but missing from the working tree:$$missing"; \
+	   exit 2; \
+	 fi; \
+	 rc=0; n=0; new=0; \
 	 for f in examples/*.yaml examples/fleet/*.yaml ci/*.yaml; do \
 	   [ -f "$$tmp/wt/$$f" ] || continue; \
+	   if [ ! -f "$$tmp/ref/$$f" ]; then \
+	     echo "  NEW       $$f (no counterpart in $(REF) - not compared)"; \
+	     new=$$((new+1)); continue; \
+	   fi; \
 	   out_a=$$(helm template bd $$tmp/ref -f $$tmp/ref/$$f) || \
 	     { echo "FATAL: helm failed rendering $(REF):$$f"; exit 2; }; \
 	   out_b=$$(helm template bd $$tmp/wt  -f $$tmp/wt/$$f) || \
@@ -87,6 +99,7 @@ byte-diff:
 	   if [ "$$a" != "$$b" ]; then echo "  BYTE-DIFF $$f"; rc=1; else echo "  same      $$f"; fi; \
 	 done; \
 	 if [ $$n -eq 0 ]; then echo "FATAL: compared 0 value files"; exit 2; fi; \
+	 if [ $$new -gt 0 ]; then echo "($$new new value file(s) not compared - no counterpart in $(REF))"; fi; \
 	 echo "compared $$n value files (chart version normalised)"; \
 	 exit $$rc
 
