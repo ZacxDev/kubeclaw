@@ -1,0 +1,102 @@
+name: verify
+
+# The chart had no CI at all until this file. Four verification tiers existed
+# in the Makefile and none of them ran automatically, so every gate was opt-in
+# and protected only whoever remembered to run it locally.
+#
+# This matters more here than in a typical repo: the chart encodes several
+# workarounds pinned to specific OpenClaw dot-releases, so silent drift is the
+# expected failure mode rather than an unusual one.
+
+on:
+  pull_request:
+  push:
+    branches: [trunk]
+
+# A second push to a PR makes the first run's verdict irrelevant.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # render-diff and byte-diff `git archive` a base ref, so the full
+          # history has to be present. With the default depth-1 checkout they
+          # fail outright rather than silently comparing nothing.
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: Install helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version v0.6.2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install --disable-pip-version-check pyyaml
+
+      # Fail loudly and early if the toolchain is incomplete. Without this a
+      # missing tool surfaces as a confusing mid-run error, and historically
+      # (see the byte-diff fix in 0.8.0) as a gate that reports success while
+      # testing nothing.
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          helm version --short
+          helm unittest --help >/dev/null
+          jq --version
+          python3 -c 'import yaml; print("pyyaml", yaml.__version__)'
+
+      - name: Lint
+        run: make lint
+
+      - name: Unit tests
+        run: make test
+
+      # Executes the rendered startup script under sh against fixtures —
+      # covers logic helm-unittest structurally cannot reach.
+      - name: Shell tests
+        run: make test-shell
+
+      # Which ref the diff gates compare against.
+      #   PR   -> the base branch, so the diff is the PR's own effect.
+      #   push -> the previous commit, so a merge that moved rendered output
+      #           is still visible on trunk.
+      - name: Resolve diff ref
+        id: ref
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            echo "ref=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=HEAD~1" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Semantics of the generated openclaw.json. Runs its own negative control
+      # first and refuses to compare until it has proven it can detect a
+      # difference.
+      - name: Render diff (semantic)
+        run: make render-diff REF=${{ steps.ref.outputs.ref }}
+
+      # Bytes of every rendered manifest, with the chart version normalised.
+      # Catches what render-diff structurally cannot: checksum/config hashes
+      # the whole rendered configmap.yaml, so a stray newline rolling-restarts
+      # the fleet while the config's meaning is unchanged.
+      - name: Byte diff
+        run: make byte-diff REF=${{ steps.ref.outputs.ref }}
+
+      - name: Render all examples
+        run: |
+          set -euo pipefail
+          make template-all >/dev/null
+          make template-fleet >/dev/null
+          echo "all examples rendered"

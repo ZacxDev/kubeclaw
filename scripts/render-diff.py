@@ -202,13 +202,33 @@ def cmd_compare(da, db):
     if not fa:
         print("FATAL: capture A is empty", file=sys.stderr)
         sys.exit(2)
-    if fa != fb:
-        print(f"FATAL: capture sets differ: only-A={fa - fb} only-B={fb - fa}",
-              file=sys.stderr)
+
+    # Split the set mismatch BY DIRECTION rather than failing on any difference.
+    #
+    # removed (in the ref, gone in the working tree) stays FATAL: a value file
+    # that vanished from the sweep silently shrinks coverage, which is exactly
+    # what this guard exists to catch.
+    #
+    # added (new in the working tree) is informational: a genuinely new value
+    # file has no counterpart on an older ref, so failing here would make CI
+    # red on every PR that adds one — a known false-red, which trains people
+    # to merge through the gate.
+    removed = fa - fb
+    added = fb - fa
+    if removed:
+        print(f"FATAL: value files present in A but missing from B: "
+              f"{sorted(removed)}", file=sys.stderr)
+        sys.exit(2)
+    for f in sorted(added):
+        print(f"  NEW  {f} (no counterpart in A - not compared)")
+
+    common = fa & fb
+    if not common:
+        print("FATAL: no value files in common to compare", file=sys.stderr)
         sys.exit(2)
 
     failed = 0
-    for f in sorted(fa):
+    for f in sorted(common):
         a = json.load(open(os.path.join(da, f)))
         b = json.load(open(os.path.join(db, f)))
         diffs = list(diff_paths(a, b))
@@ -219,7 +239,10 @@ def cmd_compare(da, db):
                 print(f"        {d}")
         else:
             print(f"  same {f}")
-    print(f"\n{len(fa) - failed}/{len(fa)} identical")
+    # Count over `common`, not `fa` — with added files present, len(fa) would
+    # understate the denominator and print a misleading ratio.
+    print(f"\n{len(common) - failed}/{len(common)} identical"
+          + (f" ({len(added)} new, not compared)" if added else ""))
     sys.exit(1 if failed else 0)
 
 
