@@ -410,6 +410,10 @@ The harness runs its own **negative control** first — it proves it can detect 
 
 Note it compares *semantics*. For a change that must also preserve *bytes* (anything affecting `checksum/config`, which rolling-restarts the fleet), additionally `sha256sum` the full rendered manifests against a `git archive` of the ref.
 
+**`ci/overlay-values.yaml` is the only value file that exercises `configOverlay`**, so it is what makes both gates cover the *merge* rather than only proving the feature is inert when unused. Its `tools.web.search.enabled: false` is load-bearing and commented as such: it is the sole falsy override, and without one, `mergeOverwrite` and sprig's `merge` render byte-identically — a merge-semantics regression would survive. Mutation-verified: with it, all three of operand-swap / overlay-dropped / `merge`-instead-of-`mergeOverwrite` are caught; without it, the third survives.
+
+Both gates treat a value file present on one side only as `NEW (not compared)` and a file that *vanished* as FATAL, so adding a value file does not redden CI while a deletion still fails loudly.
+
 Requires `helm`, `jq`, and `python3` with PyYAML. On NixOS:
 ```bash
 nix-shell -p kubernetes-helm jq "python3.withPackages(p: [p.pyyaml])" --run "make test-shell"
