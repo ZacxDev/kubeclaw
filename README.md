@@ -355,15 +355,16 @@ Drop a `.snapshotignore` file (rclone exclude patterns, one per line) in a snaps
 | `configOverlay` | `{}` | **Additive** overlay deep-merged onto the generated `openclaw.json`. Set or override individual keys while keeping everything the chart generates. Nested maps merge key-by-key; lists are replaced wholesale |
 | `rawConfig` | `{}` | Full `openclaw.json` **replacement** (bypasses templating entirely). Prefer `configOverlay` — reach for this only to author the config from scratch. Setting both fails the render |
 
+| `extraConfigMaps` | `[]` | Additional ConfigMaps: `[{name, mountPath, data}]` |
+| `extraVolumes` | `[]` | Extra pod volumes |
+| `extraVolumeMounts` | `[]` | Extra container volume mounts |
+| `extraEnv` | `[]` | Extra environment variables |
+
 Three things to know about `configOverlay` before relying on it:
 
 - **Never put credentials in it.** It renders into a plaintext ConfigMap that the agent's own default Role can read, and Flux consumers keep values in git. Use `existingSecret`.
 - **It cannot add an unmodelled channel.** The startup script strips any `channels.*` key not enabled through a first-class value, so an overlay-declared channel is written and then silently deleted at boot.
 - **It cannot delete a generated key.** Setting a leaf to `null` emits a literal `null` rather than removing it, which OpenClaw may reject as schema-invalid — pair with `config.onRevert: fail` if you want that surfaced loudly.
-| `extraConfigMaps` | `[]` | Additional ConfigMaps: `[{name, mountPath, data}]` |
-| `extraVolumes` | `[]` | Extra pod volumes |
-| `extraVolumeMounts` | `[]` | Extra container volume mounts |
-| `extraEnv` | `[]` | Extra environment variables |
 
 ### Expected Secret Keys
 
@@ -399,7 +400,7 @@ Agents are reachable within the cluster at:
 # Install test plugin
 helm plugin install https://github.com/helm-unittest/helm-unittest.git
 
-# Run tests (188 tests, 19 suites)
+# Run tests (189 tests, 19 suites)
 make test
 
 # Diff the generated openclaw.json against trunk. Run BOTH for any change to

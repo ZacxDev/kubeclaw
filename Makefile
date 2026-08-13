@@ -1,7 +1,7 @@
 CHART_DIR := .
 RELEASE_NAME := test
 
-.PHONY: lint test test-shell render-diff template template-all template-fleet clean
+.PHONY: lint test test-shell render-diff byte-diff template template-all template-fleet clean
 
 lint:
 	helm lint $(CHART_DIR) --set agentName=test
@@ -44,7 +44,6 @@ render-diff:
 	 tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
 	 mkdir -p $$tmp/ref && git -C $(CHART_DIR) archive $(REF) | tar -x -C $$tmp/ref; \
 	 mkdir -p $$tmp/ref/scripts; cp $(CHART_DIR)/scripts/render-diff.py $$tmp/ref/scripts/; \
-	 touch $$tmp/ref/.selftest-passed; \
 	 echo "--- capturing $(REF) ---"; python3 $$tmp/ref/scripts/render-diff.py capture $$tmp/a; \
 	 echo "--- capturing working tree ---"; python3 $(CHART_DIR)/scripts/render-diff.py capture $$tmp/b; \
 	 echo "--- comparing ---"; python3 $(CHART_DIR)/scripts/render-diff.py compare $$tmp/a $$tmp/b
@@ -59,7 +58,7 @@ render-diff:
 # leaves render-diff at 10/10 identical while moving the checksum. Run BOTH
 # before shipping a change to config generation.
 byte-diff:
-	@set -e; \
+	@set -e -o pipefail; \
 	 tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
 	 mkdir -p $$tmp/ref $$tmp/wt; \
 	 git -C $(CHART_DIR) archive $(REF) | tar -x -C $$tmp/ref; \
@@ -68,11 +67,15 @@ byte-diff:
 	 rc=0; n=0; \
 	 for f in examples/*.yaml examples/fleet/*.yaml ci/*.yaml; do \
 	   [ -f "$$tmp/wt/$$f" ] || continue; \
-	   case "$$f" in */README.yaml) continue;; esac; \
-	   a=$$(helm template bd $$tmp/ref -f $$tmp/ref/$$f 2>/dev/null | sha256sum | cut -d' ' -f1); \
-	   b=$$(helm template bd $$tmp/wt  -f $$tmp/wt/$$f  2>/dev/null | sha256sum | cut -d' ' -f1); \
+	   out_a=$$(helm template bd $$tmp/ref -f $$tmp/ref/$$f) || \
+	     { echo "FATAL: helm failed rendering $(REF):$$f"; exit 2; }; \
+	   out_b=$$(helm template bd $$tmp/wt  -f $$tmp/wt/$$f) || \
+	     { echo "FATAL: helm failed rendering working-tree:$$f"; exit 2; }; \
+	   [ -n "$$out_a" ] || { echo "FATAL: $(REF):$$f rendered EMPTY"; exit 2; }; \
+	   a=$$(printf '%s' "$$out_a" | sha256sum | cut -d' ' -f1); \
+	   b=$$(printf '%s' "$$out_b" | sha256sum | cut -d' ' -f1); \
 	   n=$$((n+1)); \
-	   if [ -z "$$a" ] || [ "$$a" != "$$b" ]; then echo "  BYTE-DIFF $$f"; rc=1; else echo "  same      $$f"; fi; \
+	   if [ "$$a" != "$$b" ]; then echo "  BYTE-DIFF $$f"; rc=1; else echo "  same      $$f"; fi; \
 	 done; \
 	 if [ $$n -eq 0 ]; then echo "FATAL: compared 0 value files"; exit 2; fi; \
 	 echo "compared $$n value files (chart version normalised)"; \

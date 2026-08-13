@@ -176,8 +176,14 @@ def cmd_selftest():
             sys.exit(1)
         print(f"  ok end-to-end: extracted model.primary={model!r} and detected a change to it")
     else:
-        print("  !! examples/standard.yaml missing - end-to-end control SKIPPED",
-              file=sys.stderr)
+        # HARD FAIL, not a skip. This is the only control that exercises
+        # render_config/extraction; skipping it while still writing the stamp
+        # would unlock `compare` with the exact blind spot this check exists
+        # to close. Matches cmd_capture's and byte-diff's FATAL-on-zero
+        # posture rather than degrading quietly.
+        print("FAIL: examples/standard.yaml missing - cannot run the end-to-end "
+              "control, refusing to unlock compare", file=sys.stderr)
+        sys.exit(1)
 
     open(stamp_path(), "w").close()
     print(f"SELFTEST PASSED - compare unlocked for this script version")

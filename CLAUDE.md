@@ -43,7 +43,7 @@ kubeclaw/
 │   └── clank-task-mcp       # stdio MCP server (registered with OpenClaw)
 ├── plugins/
 │   └── email/               # Email channel plugin (Node.js, index.js + plugin manifest)
-├── tests/                   # 183 helm-unittest tests (19 files)
+├── tests/                   # 189 helm-unittest tests (19 files)
 │   └── shell/               # Runtime tests: extracts the rendered startup script
 │       ├── run.sh           #   and executes it under sh against fixtures
 │       └── extract_block.py
@@ -367,9 +367,10 @@ Scheduled saves run with `ionice -c3 nice -n 19` for low-priority I/O. Restore a
 
 ```bash
 make lint           # helm lint
-make test           # 188 helm-unittest tests
+make test           # 189 helm-unittest tests
 make test-shell     # runtime tests of the rendered startup script
 make render-diff    # semantic diff of generated openclaw.json vs trunk
+make byte-diff      # full-manifest byte diff vs trunk (version normalised)
 make template       # render standard example
 make template-all   # render all examples
 make template-fleet # render the three-agent fleet example
@@ -379,7 +380,7 @@ make template-fleet # render the three-agent fleet example
 
 Three tiers — **all must be green**; they cover structurally different things.
 
-**Tier 1 — `make test` (helm-unittest, 188 tests in 19 files).** Asserts on rendered template text. Install the plugin with:
+**Tier 1 — `make test` (helm-unittest, 189 tests in 19 files).** Asserts on rendered template text. Install the plugin with:
 ```bash
 helm plugin install https://github.com/helm-unittest/helm-unittest.git
 ```
