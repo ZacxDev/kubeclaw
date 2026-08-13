@@ -1,0 +1,72 @@
+# Fleet agent 2/3 — read-only cluster diagnostics.
+#
+# Middle trust tier. Can read pods, logs and events across every namespace
+# via the built-in "view" ClusterRole, but holds no write verb anywhere.
+# The agent you page when something is broken and you want an answer, not
+# a remediation.
+agentName: ops-readonly
+
+git:
+  email: "ops@example.com"
+  name: "Ops Readonly (DevPod)"
+  repos:
+    - url: "git@github.com:yourorg/runbooks.git"
+      path: "/data/repos/runbooks"
+      branch: "main"
+
+agent:
+  model:
+    primary: "anthropic/claude-sonnet-4"
+
+channels:
+  telegram:
+    enabled: true
+
+skills:
+  triage.md: |
+    ---
+    name: Triage
+    description: Diagnose a failing workload
+    user-invocable: true
+    ---
+    # Triage
+    Use kubectl to inspect the failing workload: get, describe, logs, events.
+    Cross-reference /data/repos/runbooks. You have READ access only — never
+    attempt a mutation; propose the command for a human to run instead.
+
+# --- RBAC: cluster-wide read. Binds the built-in "view" ClusterRole. ---
+rbac:
+  clusterReadOnly:
+    enabled: true
+
+# --- kubectl / flux / sops / age, downloaded at container start. ---
+infraTools:
+  enabled: true
+
+# --- Hardening: baseline only. ---
+# NOTE: capabilities are deliberately NOT dropped. infraTools curls four
+# binaries into /usr/local/bin and unpacks archives at init, which needs
+# CHOWN/DAC_OVERRIDE/FOWNER. Dropping ALL here fails the pod at startup.
+securityContext:
+  allowPrivilegeEscalation: false
+  seccompProfile:
+    type: RuntimeDefault
+
+tls:
+  verify: true
+
+networkPolicy:
+  enabled: true
+  egress:
+    # allowKubeApiserver and allowKubeDns default true — kubectl needs both.
+    fqdns:
+      - "github.com"
+      - "api.github.com"
+      - "codeload.github.com"
+      - "*.githubusercontent.com"   # sops + age release assets
+      - "dl.k8s.io"                 # kubectl download
+      - "fluxcd.io"                 # flux install script
+      - "api.anthropic.com"
+      - "api.telegram.org"
+
+existingSecret: devpod-secrets
