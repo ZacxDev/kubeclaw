@@ -43,7 +43,7 @@ kubeclaw/
 │   └── clank-task-mcp       # stdio MCP server (registered with OpenClaw)
 ├── plugins/
 │   └── email/               # Email channel plugin (Node.js, index.js + plugin manifest)
-├── tests/                   # 183 helm-unittest tests (19 files)
+├── tests/                   # 189 helm-unittest tests (19 files)
 │   └── shell/               # Runtime tests: extracts the rendered startup script
 │       ├── run.sh           #   and executes it under sh against fixtures
 │       └── extract_block.py
@@ -132,7 +132,27 @@ When `logShipping.enabled: true`, three busybox sidecars tail agent output to st
 
 ### Config Generation (configmap.yaml)
 
-The chart templates `openclaw.json` from values unless `rawConfig` is set (which bypasses templating entirely). Secret fields are **not** in the ConfigMap — they're injected via `jq` at container startup from environment variables sourced from the Secret.
+The chart templates `openclaw.json` from values. Secret fields are **not** in the ConfigMap — they're injected via `jq` at container startup from environment variables sourced from the Secret.
+
+Three mutually exclusive paths, in `templates/configmap.yaml`:
+
+| Values | Path | Result |
+|--------|------|--------|
+| neither set | verbatim text | The generated config, emitted byte-for-byte as the template writes it |
+| `rawConfig` set | `toJson` | The `rawConfig` values replace everything; no generation at all |
+| `configOverlay` set | `mustFromJson` → `mergeOverwrite` → `toJson` | Generated config with the overlay deep-merged on top (compact JSON) |
+| **both** set | `fail` | Render aborts — ambiguous, so it fails loudly |
+
+(Listed in evaluation order — `rawConfig` is tested first.)
+
+The generated JSON lives in a `kubeclaw.configJson` named template so all three paths can consume it. Two things about that block are load-bearing:
+
+- **The no-overlay path emits the text verbatim** rather than round-tripping through `fromJson`/`toJson`. Round-tripping would reformat and reorder keys, changing the ConfigMap bytes, changing `checksum/config`, and rolling-restarting every agent in the fleet for a semantically identical config.
+- **The `define`'s closing `{{- end -}}` must keep its trailing dash.** `checksum/config` hashes this template's *entire* rendered output, so a stray leading newline has the same fleet-restart effect. **`make render-diff` does NOT catch this** — dropping the dash leaves it at 10/10 identical because the ConfigMap *document* is unchanged; only the `include`-based checksum moves. **`make byte-diff` does catch it** (verified by mutation). Run both.
+
+The overlay path parses the generated text with **`mustFromJson`**, so a malformed conditional in the JSON block fails the render — but only when an overlay is in use. The `must` prefix is load-bearing: plain `fromJson` returns `{"Error": "<msg>"}` and lets the render *succeed*, silently swapping the entire config for an error map. That map is valid JSON, so the startup script's `jq` passes and the agent boots with no model, workspace or channels.
+
+**`configOverlay` cannot add an unmodelled channel.** The startup script's channel strip (`deployment.yaml`) builds its allowlist from Helm values only and `jq`-deletes every other `.channels.*` key, so an overlay-declared channel renders into the ConfigMap and is then removed at boot with no error. Adding a channel requires a first-class value plus an entry in the strip list.
 
 ### Workflow CronJobs (cronjob-workflow.yaml)
 
@@ -227,7 +247,7 @@ gateway:
       responses: { enabled: true }         # /v1/responses (structured tool calls)
 hooks:
   enabled: true
-  allowedSessionKeyPrefixes: []            # auto-emits hook:element: (+ hook:email:) when empty
+  allowedSessionKeyPrefixes: []            # empty emits the single prefix "hook:"
 logShipping:
   enabled: false                           # busybox sidecars → stdout → Loki
 ```
@@ -346,18 +366,21 @@ Scheduled saves run with `ionice -c3 nice -n 19` for low-priority I/O. Restore a
 ## Development
 
 ```bash
-make lint          # helm lint
-make test          # 183 helm-unittest tests
-make test-shell    # runtime tests of the rendered startup script
-make template      # render standard example
-make template-all  # render all examples
+make lint           # helm lint
+make test           # 189 helm-unittest tests
+make test-shell     # runtime tests of the rendered startup script
+make render-diff    # semantic diff of generated openclaw.json vs trunk
+make byte-diff      # full-manifest byte diff vs trunk (version normalised)
+make template       # render standard example
+make template-all   # render all examples
+make template-fleet # render the three-agent fleet example
 ```
 
 ### Testing
 
-Two tiers — **both must be green**; they cover structurally different things.
+Three tiers — **all must be green**; they cover structurally different things.
 
-**Tier 1 — `make test` (helm-unittest, 183 tests in 19 files).** Asserts on rendered template text. Install the plugin with:
+**Tier 1 — `make test` (helm-unittest, 189 tests in 19 files).** Asserts on rendered template text. Install the plugin with:
 ```bash
 helm plugin install https://github.com/helm-unittest/helm-unittest.git
 ```
@@ -379,9 +402,18 @@ helm plugin install https://github.com/helm-unittest/helm-unittest.git
 - **Skill prune** — a chart-managed skill removed from values is pruned while an unmanaged/agent-authored one survives; first boot (no manifest) prunes nothing and then writes the manifest.
 - **Config-revert detection** — `warn` on a revert emits banner + sentinel and exits 0; `fail` does the same and exits 1; a doctor run that *accepted* the config (mutating it but preserving the chart's scalars) stays silent. That last case is what broke the original file-hash approach and motivated the semantic check.
 
+**Tier 3 — `make render-diff`.** Neither tier above can catch a change to config *generation* that keeps every assertion passing while altering what the agent actually runs. This renders the chart against all ten value files in the repo (`examples/`, `examples/fleet/`, `ci/`), extracts `data["openclaw.json"]`, parses it, and deep-compares against a git ref (`REF=`, default `trunk`).
+
+Run it before/after **any** edit to `configmap.yaml` or `_helpers.tpl`.
+
+The harness runs its own **negative control** first — it proves it can detect a one-nested-key difference, a missing key and a changed list length — and `compare` refuses to run until that has passed. A comparison tool that always reports "identical" is the default failure mode here, so the tool's verdict is worthless until it has been watched to fail.
+
+Note it compares *semantics*. For a change that must also preserve *bytes* (anything affecting `checksum/config`, which rolling-restarts the fleet), additionally `sha256sum` the full rendered manifests against a `git archive` of the ref.
+
 Requires `helm`, `jq`, and `python3` with PyYAML. On NixOS:
 ```bash
 nix-shell -p kubernetes-helm jq "python3.withPackages(p: [p.pyyaml])" --run "make test-shell"
+nix-shell -p kubernetes-helm "python3.withPackages(p: [p.pyyaml])" --run "make render-diff"
 ```
 
 ### Template Debugging

@@ -302,8 +302,9 @@ hooks:
   enabled: true
   # -- Allowed sessionKey prefixes for hook mappings. Required by openclaw
   # 2026.5.18+ whenever any hook mapping sessionKey uses templates such as
-  # {{timestamp}} or {{from}}. If left empty, the template auto-emits
-  # "hook:element:" plus "hook:email:" (when channels.email.enabled).
+  # {{timestamp}} or {{from}}. If left empty, the template emits the single
+  # prefix "hook:", which covers every hook sessionKey the chart generates
+  # ("hook:element:..." and "hook:email:...").
   allowedSessionKeyPrefixes: []
   # -- Hook mappings array. If empty, a default element hook is generated.
   # Set to a non-empty array to fully override.
@@ -384,9 +385,51 @@ extraEnv: []
 # but before the gateway starts. Use for installing project-specific tools.
 extraInitCommands: ""
 
-# -- Full openclaw.json override. When set, bypasses all templated config generation.
-# The secret fields are still injected via jq at runtime.
+# -- Full openclaw.json override. When set, bypasses ALL templated config
+# generation — you lose workspace defaulting, mention patterns, channel
+# rendering and everything else the chart resolves. The secret fields are
+# still injected via jq at runtime.
+#
+# Prefer `configOverlay` below. Reach for rawConfig only when you genuinely
+# need to author openclaw.json from scratch.
 rawConfig: {}
+
+# -- Additive overlay merged ONTO the generated openclaw.json.
+# Unlike rawConfig this keeps everything the chart generates and lets you
+# adjust or add individual keys — the composable option, and the one to use
+# for an OpenClaw setting the chart does not model as a first-class value.
+#
+# Deep-merged (mergeOverwrite): nested maps merge key-by-key, so setting one
+# leaf does not drop its siblings. Lists are REPLACED wholesale, not appended.
+#
+# Default {} renders the generated config byte-identically, so adopting this
+# feature does not alter any existing agent's openclaw.json.
+#
+# Setting BOTH rawConfig and configOverlay fails the render.
+#
+# NEVER put credentials here. This lands in a plaintext ConfigMap, the agent's
+# own default Role can read configmaps in its namespace, and Flux consumers
+# keep HelmRelease values in git. Secrets belong in `existingSecret`, which is
+# injected via jq at container start.
+#
+# LIMITATION - cannot add an unmodelled CHANNEL. The startup script strips any
+# .channels.* key that is not enabled through a first-class value, so an
+# overlay-declared channel is written to the ConfigMap and then deleted at
+# boot, silently. Adding a channel needs a chart change, not an overlay.
+#
+# LIMITATION - cannot DELETE a generated key. Setting a leaf to null emits a
+# literal null rather than removing it, which OpenClaw may reject as
+# schema-invalid; `openclaw doctor --fix` then reverts to the last-good config.
+# Overlays make schema-invalid configs easier to produce, so consider pairing
+# this with `config.onRevert: fail` to surface that loudly instead of running
+# on a silently reverted config.
+configOverlay: {}
+# configOverlay:
+#   agents:
+#     defaults:
+#       timeoutSeconds: 600      # adds a key, keeps model/workspace/maxConcurrent
+#   gateway:
+#     mode: "remote"             # overrides one leaf, keeps gateway.http.*
 
 # -- openclaw.json lifecycle / integrity behavior.
 config:

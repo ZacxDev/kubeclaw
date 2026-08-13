@@ -24,3 +24,6 @@ opencode.json
 # (ClawSail) work; none of them belong to the chart.
 *.png
 preview.html
+
+# render-diff.py negative-control stamp (see scripts/render-diff.py)
+.selftest-passed*

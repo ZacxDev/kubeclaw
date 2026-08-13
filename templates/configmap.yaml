@@ -1,15 +1,29 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "kubeclaw.fullname" . }}-config
-  namespace: {{ include "kubeclaw.namespace" . }}
-  labels:
-    {{- include "kubeclaw.labels" . | nindent 4 }}
-data:
-  openclaw.json: |
-    {{- if .Values.rawConfig }}
-    {{ .Values.rawConfig | toJson | indent 4 }}
-    {{- else }}
+{{- /*
+  rawConfig REPLACES the generated config; configOverlay MERGES onto it.
+  Setting both is ambiguous, so fail the render rather than silently picking
+  one (same fail-loud posture as the NetworkPolicy guards).
+*/ -}}
+{{- if and .Values.rawConfig .Values.configOverlay }}
+{{- fail "kubeclaw: set either rawConfig (full replacement) or configOverlay (additive merge), not both. configOverlay is the composable option — prefer it unless you need to author openclaw.json from scratch." }}
+{{- end }}
+{{- /*
+  The generated config lives in a named template so it can be consumed three
+  ways below. Emitted as text (not a dict) because the overlay path parses it
+  back with mustFromJson.
+
+  mustFromJson, NOT fromJson: plain fromJson does not fail on malformed input,
+  it returns {"Error": "<msg>"} and lets the render SUCCEED — silently
+  replacing the entire generated config with an error map plus the overlay.
+  That map is valid JSON, so the startup script's jq passes and the agent
+  boots with no model, no workspace and no channels. mustFromJson aborts.
+
+  Keep explanatory comments OUT of the `openclaw.json` literal block below.
+  A whitespace-trimming Go-template comment in there eats the newlines that
+  separate the block's lines and produces invalid YAML. (Note also that the
+  comment delimiters cannot be written literally inside a comment - doing so
+  terminates it early and corrupts the whole template.)
+*/ -}}
+{{- define "kubeclaw.configJson" }}
     {
       "agents": {
         "defaults": {
@@ -198,6 +212,29 @@ data:
         ]
       }
     }
+{{- /*
+  `-}}` here is load-bearing: it trims the newline this define would otherwise
+  leave at the top of the rendered file. checksum/config hashes this template's
+  full rendered output, so a stray leading newline changes the annotation and
+  rolling-restarts every agent in the fleet on upgrade for a byte-identical
+  ConfigMap. Verified by scripts/render-diff.py + a manifest byte-compare.
+*/ -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubeclaw.fullname" . }}-config
+  namespace: {{ include "kubeclaw.namespace" . }}
+  labels:
+    {{- include "kubeclaw.labels" . | nindent 4 }}
+data:
+  openclaw.json: |
+    {{- if .Values.rawConfig }}
+    {{ .Values.rawConfig | toJson | indent 4 }}
+    {{- else if .Values.configOverlay }}
+    {{ mergeOverwrite (include "kubeclaw.configJson" . | mustFromJson) .Values.configOverlay | toJson | indent 4 }}
+    {{- else }}
+    {{- include "kubeclaw.configJson" . }}
     {{- end }}
   repos.json: |
     {{ .Values.git.repos | toJson }}
