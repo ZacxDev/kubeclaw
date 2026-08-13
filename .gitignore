@@ -1,7 +1,26 @@
+# Helm build artifacts
 charts/
 Chart.lock
 *.tgz
+
+# Editor / OS
 *.swp
 *.bak
 *.tmp
 .DS_Store
+
+# Local dev environment and agent tooling. Untracked by design — these are
+# per-host and must not ship with the chart. .helmignore already keeps them
+# out of the package; this keeps them out of a commit.
+.envrc
+.direnv/
+.venv/
+.opencode/
+opencode.json
+.serena/
+.playwright-mcp/
+
+# Scratch UI artifacts. Screenshots and previews land here during portal
+# (ClawSail) work; none of them belong to the chart.
+*.png
+preview.html
