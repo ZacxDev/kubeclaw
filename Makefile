@@ -39,16 +39,44 @@ template-all:
 #   make render-diff REF=v0.7.1 # vs a tag
 REF ?= trunk
 render-diff:
-	@python3 $(CHART_DIR)/scripts/render-diff.py selftest
-	@tmp=$$(mktemp -d); \
+	@set -e; \
+	 python3 $(CHART_DIR)/scripts/render-diff.py selftest; \
+	 tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
 	 mkdir -p $$tmp/ref && git -C $(CHART_DIR) archive $(REF) | tar -x -C $$tmp/ref; \
-	 cp $(CHART_DIR)/scripts/render-diff.py $$tmp/ref/scripts/ 2>/dev/null || \
-	   (mkdir -p $$tmp/ref/scripts && cp $(CHART_DIR)/scripts/render-diff.py $$tmp/ref/scripts/); \
+	 mkdir -p $$tmp/ref/scripts; cp $(CHART_DIR)/scripts/render-diff.py $$tmp/ref/scripts/; \
 	 touch $$tmp/ref/.selftest-passed; \
 	 echo "--- capturing $(REF) ---"; python3 $$tmp/ref/scripts/render-diff.py capture $$tmp/a; \
 	 echo "--- capturing working tree ---"; python3 $(CHART_DIR)/scripts/render-diff.py capture $$tmp/b; \
-	 echo "--- comparing ---"; python3 $(CHART_DIR)/scripts/render-diff.py compare $$tmp/a $$tmp/b; \
-	 rc=$$?; rm -rf $$tmp; exit $$rc
+	 echo "--- comparing ---"; python3 $(CHART_DIR)/scripts/render-diff.py compare $$tmp/a $$tmp/b
+
+# Full-manifest BYTE diff vs a git ref, with the chart version normalised on
+# both sides so a routine version bump doesn't mask real byte drift.
+#
+# render-diff compares the MEANING of openclaw.json. This compares the bytes of
+# every rendered manifest, which is what checksum/config hashes — and that
+# annotation rolling-restarts the whole fleet when it moves. The two catch
+# different things: dropping the trailing dash on configmap.yaml's `{{- end -}}`
+# leaves render-diff at 10/10 identical while moving the checksum. Run BOTH
+# before shipping a change to config generation.
+byte-diff:
+	@set -e; \
+	 tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
+	 mkdir -p $$tmp/ref $$tmp/wt; \
+	 git -C $(CHART_DIR) archive $(REF) | tar -x -C $$tmp/ref; \
+	 tar -c --exclude=./.git --exclude=./.venv --exclude=./.direnv -C $(CHART_DIR) . | tar -x -C $$tmp/wt; \
+	 sed -i 's/^version:.*/version: 0.0.0-bytediff/' $$tmp/ref/Chart.yaml $$tmp/wt/Chart.yaml; \
+	 rc=0; n=0; \
+	 for f in examples/*.yaml examples/fleet/*.yaml ci/*.yaml; do \
+	   [ -f "$$tmp/wt/$$f" ] || continue; \
+	   case "$$f" in */README.yaml) continue;; esac; \
+	   a=$$(helm template bd $$tmp/ref -f $$tmp/ref/$$f 2>/dev/null | sha256sum | cut -d' ' -f1); \
+	   b=$$(helm template bd $$tmp/wt  -f $$tmp/wt/$$f  2>/dev/null | sha256sum | cut -d' ' -f1); \
+	   n=$$((n+1)); \
+	   if [ -z "$$a" ] || [ "$$a" != "$$b" ]; then echo "  BYTE-DIFF $$f"; rc=1; else echo "  same      $$f"; fi; \
+	 done; \
+	 if [ $$n -eq 0 ]; then echo "FATAL: compared 0 value files"; exit 2; fi; \
+	 echo "compared $$n value files (chart version normalised)"; \
+	 exit $$rc
 
 # Render the three-agent fleet example. Each agent is a different RBAC tier
 # and egress posture from the same chart.

@@ -15,8 +15,11 @@ each release for the values to adopt and the boilerplate that can be removed.
 ## [0.8.0] — 2026-08-13
 
 Composable config. `openclaw.json` can now be adjusted key-by-key instead of
-all-or-nothing. **Purely additive** — a default-values render is byte-identical
-to 0.7.1, checksum annotation included, so upgrading restarts nothing.
+all-or-nothing. **Purely additive** — the generated `openclaw.json` is
+byte-identical to 0.7.1 for every existing values combination. Pods roll once
+on upgrade, as they do on *every* chart-version bump: `checksum/config` hashes
+`configmap.yaml`, which includes the `helm.sh/chart: kubeclaw-<version>` label.
+The config itself does not change.
 
 ### Added
 - **`configOverlay`** — an additive overlay deep-merged onto the generated
@@ -32,7 +35,16 @@ to 0.7.1, checksum annotation included, so upgrading restarts nothing.
   Use it before/after any change to config generation: unit assertions on
   rendered *text* cannot catch a config whose *meaning* moved. The harness
   runs its own negative control first and **refuses to compare** until it has
-  demonstrated it can detect a one-nested-key difference.
+  demonstrated it can detect a one-nested-key difference, extract a real
+  config, and spot a change to it.
+- **`make byte-diff`** — full-manifest byte comparison against a git ref, with
+  the chart version normalised on both sides. Catches what `render-diff`
+  structurally cannot: `checksum/config` hashes the whole rendered
+  `configmap.yaml`, so a stray newline moves it and rolling-restarts the fleet
+  while the config's *meaning* is unchanged. Demonstrated: dropping the
+  trailing dash on the `define`'s `{{- end -}}` leaves `render-diff` at 10/10
+  identical and fails `byte-diff`. **Run both** for any change to config
+  generation.
 
 ### Changed
 - **`rawConfig` is now documented as the escape hatch of last resort.** Its
@@ -45,8 +57,11 @@ to 0.7.1, checksum annotation included, so upgrading restarts nothing.
   the 0.7.1 NetworkPolicy guards).
 - The generated config moved into a `kubeclaw.configJson` named template so
   all three paths can consume it. When an overlay is in use the text is parsed
-  with `fromJson`, so a malformed conditional in the JSON block now fails the
-  render instead of shipping invalid JSON to the pod.
+  with **`mustFromJson`**, so a malformed conditional in the JSON block fails
+  the render. (Plain `fromJson` would *not*: it returns `{"Error": "<msg>"}`
+  and the render succeeds, silently replacing the whole config with an error
+  map — and because that map is valid JSON, the startup script's `jq` passes
+  and the agent boots with no model, workspace or channels.)
 
 ### Fixed
 - **`hooks.allowedSessionKeyPrefixes` docs contradicted the template.** The
@@ -55,14 +70,23 @@ to 0.7.1, checksum annotation included, so upgrading restarts nothing.
   both. Behavior was always correct — the claim was not.
 
 ### Upgrade notes
-Nothing to do. `configOverlay` defaults to `{}` and the no-overlay path emits
-the config verbatim, so every existing agent renders byte-identically —
-verified by `make render-diff` (10/10 identical) plus a full-manifest
-`sha256sum` comparison across five value files.
+No values changes required. `configOverlay` defaults to `{}` and the
+no-overlay path emits the config verbatim, so every existing agent's
+`openclaw.json` is unchanged — verified by `make render-diff` (10/10
+semantically identical) and `make byte-diff` (10/10 byte-identical with the
+chart version normalised).
+
+**Expect one rolling restart**, as with any chart-version bump — see above.
+Schedule accordingly on a large fleet; `strategy: Recreate` means each agent
+is briefly down for its re-clone/re-install cycle.
 
 Adopt `configOverlay` wherever a consumer currently sets `rawConfig` just to
 change one or two keys — that pattern gives up all chart-side config
 generation and is the thing this release exists to remove.
+
+**clawgate vendors a copy of this chart** at
+`homelab-talos/containers/clawgate/internal/agents/chart/kubeclaw` — sync it
+after adopting this release.
 
 ## [0.7.1] — 2026-07-25
 

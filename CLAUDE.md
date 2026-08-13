@@ -139,16 +139,20 @@ Three mutually exclusive paths, in `templates/configmap.yaml`:
 | Values | Path | Result |
 |--------|------|--------|
 | neither set | verbatim text | The generated config, emitted byte-for-byte as the template writes it |
-| `configOverlay` set | `fromJson` → `mergeOverwrite` → `toJson` | Generated config with the overlay deep-merged on top (compact JSON) |
-| `rawConfig` set | `toJson` | The overlay values replace everything; no generation at all |
+| `rawConfig` set | `toJson` | The `rawConfig` values replace everything; no generation at all |
+| `configOverlay` set | `mustFromJson` → `mergeOverwrite` → `toJson` | Generated config with the overlay deep-merged on top (compact JSON) |
 | **both** set | `fail` | Render aborts — ambiguous, so it fails loudly |
+
+(Listed in evaluation order — `rawConfig` is tested first.)
 
 The generated JSON lives in a `kubeclaw.configJson` named template so all three paths can consume it. Two things about that block are load-bearing:
 
 - **The no-overlay path emits the text verbatim** rather than round-tripping through `fromJson`/`toJson`. Round-tripping would reformat and reorder keys, changing the ConfigMap bytes, changing `checksum/config`, and rolling-restarting every agent in the fleet for a semantically identical config.
-- **The `define`'s closing `{{- end -}}` must keep its trailing dash.** `checksum/config` hashes this template's *entire* rendered output, so a stray leading newline has the same fleet-restart effect. Guard both with `make render-diff` (see Testing).
+- **The `define`'s closing `{{- end -}}` must keep its trailing dash.** `checksum/config` hashes this template's *entire* rendered output, so a stray leading newline has the same fleet-restart effect. **`make render-diff` does NOT catch this** — dropping the dash leaves it at 10/10 identical because the ConfigMap *document* is unchanged; only the `include`-based checksum moves. **`make byte-diff` does catch it** (verified by mutation). Run both.
 
-Because the overlay path parses the generated text with `fromJson`, a malformed conditional in the JSON block now fails the render instead of shipping invalid JSON to the pod — but only when an overlay is in use.
+The overlay path parses the generated text with **`mustFromJson`**, so a malformed conditional in the JSON block fails the render — but only when an overlay is in use. The `must` prefix is load-bearing: plain `fromJson` returns `{"Error": "<msg>"}` and lets the render *succeed*, silently swapping the entire config for an error map. That map is valid JSON, so the startup script's `jq` passes and the agent boots with no model, workspace or channels.
+
+**`configOverlay` cannot add an unmodelled channel.** The startup script's channel strip (`deployment.yaml`) builds its allowlist from Helm values only and `jq`-deletes every other `.channels.*` key, so an overlay-declared channel renders into the ConfigMap and is then removed at boot with no error. Adding a channel requires a first-class value plus an entry in the strip list.
 
 ### Workflow CronJobs (cronjob-workflow.yaml)
 

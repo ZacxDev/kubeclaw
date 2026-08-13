@@ -26,4 +26,4 @@ opencode.json
 preview.html
 
 # render-diff.py negative-control stamp (see scripts/render-diff.py)
-.selftest-passed
+.selftest-passed*

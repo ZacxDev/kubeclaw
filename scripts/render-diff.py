@@ -107,7 +107,16 @@ def diff_paths(a, b, path="$"):
         yield f"{path}: {a!r} != {b!r}"
 
 
-SELFTEST_STAMP = ".selftest-passed"
+def stamp_path():
+    """Stamp keyed to THIS script's content.
+
+    A bare `.selftest-passed` file is a permanent one-time unlock: edit the
+    comparator afterwards and `compare` keeps running against a stamp earned
+    by the old code. Hashing the script means any edit invalidates the unlock.
+    """
+    import hashlib
+    h = hashlib.sha256(open(__file__, "rb").read()).hexdigest()[:16]
+    return os.path.join(CHART, f".selftest-passed-{h}")
 
 
 def cmd_selftest():
@@ -140,13 +149,45 @@ def cmd_selftest():
         sys.exit(1)
     print("  ok identical inputs -> 0 diffs")
 
-    open(os.path.join(CHART, SELFTEST_STAMP), "w").close()
-    print("SELFTEST PASSED - compare is now unlocked")
+    # POSITIVE CONTROL ON THE EXTRACTION PATH, not just the comparator.
+    # diff_paths is a pure function; proving it works says nothing about
+    # whether render_config actually observes the config. A render_config
+    # stubbed to a constant would yield "N/N identical" with every check
+    # above still passing. So render a real value file and assert we can
+    # both SEE a known key and DETECT a change to it.
+    probe = os.path.join(CHART, "examples", "standard.yaml")
+    if os.path.exists(probe):
+        cfg = render_config(probe)
+        if not cfg:
+            print("FAIL: render_config returned nothing for examples/standard.yaml",
+                  file=sys.stderr)
+            sys.exit(1)
+        try:
+            model = cfg["agents"]["defaults"]["model"]["primary"]
+        except (KeyError, TypeError):
+            print(f"FAIL: extraction produced no agents.defaults.model.primary: "
+                  f"{list(cfg)[:8]}", file=sys.stderr)
+            sys.exit(1)
+        mutated = json.loads(json.dumps(cfg))
+        mutated["agents"]["defaults"]["model"]["primary"] = model + "-MUTANT"
+        if not list(diff_paths(cfg, mutated)):
+            print("FAIL: end-to-end control - real config vs mutated compared equal",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"  ok end-to-end: extracted model.primary={model!r} and detected a change to it")
+    else:
+        print("  !! examples/standard.yaml missing - end-to-end control SKIPPED",
+              file=sys.stderr)
+
+    open(stamp_path(), "w").close()
+    print(f"SELFTEST PASSED - compare unlocked for this script version")
 
 
 def cmd_compare(da, db):
-    if not os.path.exists(os.path.join(CHART, SELFTEST_STAMP)):
-        print("REFUSING: run `render-diff.py selftest` first (negative control).",
+    if not os.path.exists(stamp_path()):
+        print("REFUSING: run `render-diff.py selftest` first (negative control).\n"
+              "  (The stamp is keyed to this script's hash, so editing the script "
+              "re-locks compare until selftest passes again.)",
               file=sys.stderr)
         sys.exit(2)
 

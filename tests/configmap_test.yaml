@@ -135,6 +135,26 @@ tests:
           path: data["openclaw.json"]
           pattern: '"maxConcurrent": 4'
 
+  # Pins the `must` in mustFromJson. Plain fromJson does NOT fail on malformed
+  # input — it returns {"Error": "<msg>"} and the render SUCCEEDS, silently
+  # swapping the whole config for an error map. That map is valid JSON, so the
+  # startup script's jq passes and the agent boots with no model/workspace/
+  # channels. Revert to fromJson and this test goes red.
+  #
+  # The trigger is a real pre-existing defect in the JSON block: matrix enabled
+  # with a null typingIndicator leaves a trailing comma after "autoJoin".
+  - it: a malformed generated config fails the render on the overlay path
+    set:
+      channels:
+        matrix:
+          enabled: true
+          typingIndicator: null
+      configOverlay:
+        anything: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: "mustFromJson"
+
   - it: setting both rawConfig and configOverlay fails the render
     set:
       rawConfig:

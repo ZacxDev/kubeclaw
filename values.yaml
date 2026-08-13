@@ -402,10 +402,27 @@ rawConfig: {}
 # Deep-merged (mergeOverwrite): nested maps merge key-by-key, so setting one
 # leaf does not drop its siblings. Lists are REPLACED wholesale, not appended.
 #
-# Default {} renders byte-identically to no overlay at all, so enabling this
-# feature does not restart or alter any existing agent.
+# Default {} renders the generated config byte-identically, so adopting this
+# feature does not alter any existing agent's openclaw.json.
 #
 # Setting BOTH rawConfig and configOverlay fails the render.
+#
+# NEVER put credentials here. This lands in a plaintext ConfigMap, the agent's
+# own default Role can read configmaps in its namespace, and Flux consumers
+# keep HelmRelease values in git. Secrets belong in `existingSecret`, which is
+# injected via jq at container start.
+#
+# LIMITATION - cannot add an unmodelled CHANNEL. The startup script strips any
+# .channels.* key that is not enabled through a first-class value, so an
+# overlay-declared channel is written to the ConfigMap and then deleted at
+# boot, silently. Adding a channel needs a chart change, not an overlay.
+#
+# LIMITATION - cannot DELETE a generated key. Setting a leaf to null emits a
+# literal null rather than removing it, which OpenClaw may reject as
+# schema-invalid; `openclaw doctor --fix` then reverts to the last-good config.
+# Overlays make schema-invalid configs easier to produce, so consider pairing
+# this with `config.onRevert: fail` to surface that loudly instead of running
+# on a silently reverted config.
 configOverlay: {}
 # configOverlay:
 #   agents:
