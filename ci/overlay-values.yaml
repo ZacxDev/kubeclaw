@@ -1,0 +1,58 @@
+# CI fixture: exercises the configOverlay MERGE path.
+#
+# Without this file, `make render-diff` and `make byte-diff` only ever render
+# the no-overlay path. They would prove the feature is INERT WHEN UNUSED and
+# say nothing about whether the merge itself is correct — a regression in
+# mergeOverwrite would be invisible to both gates, leaving only the unit tests,
+# which assert on text fragments via regex.
+#
+# Every overlay key below is chosen to die under a DIFFERENT merge regression.
+# Sibling values are deliberately NON-DEFAULT so that "merge the overlay onto
+# the base" and "rebind the whole base" cannot collapse to identical output.
+agentName: overlaybot
+existingSecret: devpod-secrets
+
+agent:
+  maxConcurrent: 7                      # non-default; must SURVIVE the merge
+  model:
+    primary: "anthropic/claude-opus-4"  # non-default; overlay overrides it below
+
+channels:
+  telegram:
+    enabled: true
+
+configOverlay:
+  agents:
+    defaults:
+      # Adds a key the chart does not generate.
+      # Dies if the overlay is dropped entirely.
+      timeoutSeconds: 615
+      model:
+        # Overrides a nested leaf the chart DOES generate.
+        # Dies if mergeOverwrite's operands are swapped — the generated
+        # "anthropic/claude-opus-4" would win instead.
+        primary: "overlay/model-wins"
+  gateway:
+    # Overrides one leaf of a generated subtree. gateway.http.* and
+    # gateway.controlUi are NOT named here and must survive: a replace
+    # rather than a deep merge would drop them.
+    mode: "overlay-mode"
+  hooks:
+    # List REPLACEMENT, not append. The chart generates ["hook:"].
+    allowedSessionKeyPrefixes:
+      - "overlay:only:"
+  tools:
+    web:
+      search:
+        # LOAD-BEARING — do not "simplify" this away.
+        #
+        # This is the only key here that distinguishes mergeOverwrite from
+        # sprig's `merge`. `merge` treats a falsy value as absent and lets the
+        # base win, so with every overlay value truthy the two implementations
+        # render byte-identically and a merge-semantics regression survives.
+        #
+        # Measured: with this key the `merge` mutant is KILLED; without it, it
+        # SURVIVES while the other mutants are still caught.
+        #
+        # The chart generates `true` here, so this must stay a falsy override.
+        enabled: false
