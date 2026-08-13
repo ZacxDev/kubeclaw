@@ -1,6 +1,15 @@
 CHART_DIR := .
 RELEASE_NAME := test
 
+# Recipes use bash features (`set -o pipefail`), but make defaults to /bin/sh.
+# That is bash on NixOS and dash on Ubuntu, so a recipe can pass on a dev box
+# and fail in CI with "Illegal option -o pipefail" — which is exactly how this
+# was found (first CI run on PR #14).
+#
+# Resolved via `command -v` rather than hardcoded: /bin/bash does not exist on
+# NixOS, so `SHELL := /bin/bash` would fix CI and break local development.
+SHELL := $(shell command -v bash)
+
 .PHONY: lint test test-shell render-diff byte-diff template template-all template-fleet clean
 
 lint:
