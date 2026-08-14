@@ -369,6 +369,7 @@ Scheduled saves run with `ionice -c3 nice -n 19` for low-priority I/O. Restore a
 make lint           # helm lint
 make test           # 189 helm-unittest tests
 make test-shell     # runtime tests of the rendered startup script
+make test-ordering  # pins the startup script's init ordering contract
 make render-diff    # semantic diff of generated openclaw.json vs trunk
 make byte-diff      # full-manifest byte diff vs trunk (version normalised)
 make template       # render standard example
@@ -378,7 +379,7 @@ make template-fleet # render the three-agent fleet example
 
 ### Testing
 
-Three tiers — **all must be green**; they cover structurally different things.
+Four tiers — **all must be green**; they cover structurally different things.
 
 **Tier 1 — `make test` (helm-unittest, 189 tests in 19 files).** Asserts on rendered template text. Install the plugin with:
 ```bash
@@ -402,7 +403,22 @@ helm plugin install https://github.com/helm-unittest/helm-unittest.git
 - **Skill prune** — a chart-managed skill removed from values is pruned while an unmanaged/agent-authored one survives; first boot (no manifest) prunes nothing and then writes the manifest.
 - **Config-revert detection** — `warn` on a revert emits banner + sentinel and exits 0; `fail` does the same and exits 1; a doctor run that *accepted* the config (mutating it but preserving the chart's scalars) stays silent. That last case is what broke the original file-hash approach and motivated the semantic check.
 
-**Tier 3 — `make render-diff`.** Neither tier above can catch a change to config *generation* that keeps every assertion passing while altering what the agent actually runs. This renders the chart against all ten value files in the repo (`examples/`, `examples/fleet/`, `ci/`), extracts `data["openclaw.json"]`, parses it, and deep-compares against a git ref (`REF=`, default `trunk`).
+**Tier 3 — `make test-ordering`.** The container command is one ~1,000-line sequential block whose ordering is load-bearing, and no other tier observes *sequence*: helm-unittest asserts on text without regard to order, and `make test-shell` executes two blocks in isolation rather than in the sequence they live in.
+
+Two independent checks, because they fail on different things:
+
+| Check | Fails when | Why it's separate |
+|-------|-----------|-------------------|
+| **Ledger** | a section is added or removed | A new section isn't necessarily wrong, but it must not slip in without someone deciding where it belongs. The failure says "declare a constraint or update the ledger". |
+| **Constraints** | a section *moves* | Pairwise "A precedes B", each with a reason verified against the code. Robust to insertions, unlike pinning the whole sequence, so it doesn't fire on benign additions. |
+
+Checked against two value files so a constraint isn't confirmed by a single feature combination — which matters: a section moved into a disabled conditional shows up as *disappeared* under `examples/standard.yaml` and as an *order violation* under `ci/full-values.yaml`.
+
+The load-bearing constraint is `Snapshot restore` → `Skills` / `Workspace files` / `Workspace content`: `rclone sync` during restore deletes files absent from the snapshot, so ConfigMap-sourced files must be written after it. Second is `Detect silent config revert` → `Strip channels`, since the strip legitimately rewrites `openclaw.json` and detection can't otherwise tell a revert from a strip.
+
+Mutation-verified four ways (real section move, added section, removed section, broken marker syntax) plus a positive control that an unmutated copy passes *outside a git repo* — the absence of that control initially produced four false kills.
+
+**Tier 4 — `make render-diff`.** Neither tier above can catch a change to config *generation* that keeps every assertion passing while altering what the agent actually runs. This renders the chart against all ten value files in the repo (`examples/`, `examples/fleet/`, `ci/`), extracts `data["openclaw.json"]`, parses it, and deep-compares against a git ref (`REF=`, default `trunk`).
 
 Run it before/after **any** edit to `configmap.yaml` or `_helpers.tpl`.
 

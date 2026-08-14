@@ -10,7 +10,7 @@ RELEASE_NAME := test
 # NixOS, so `SHELL := /bin/bash` would fix CI and break local development.
 SHELL := $(shell command -v bash)
 
-.PHONY: lint test test-shell render-diff byte-diff template template-all template-fleet clean
+.PHONY: lint test test-shell test-ordering render-diff byte-diff template template-all template-fleet clean
 
 lint:
 	helm lint $(CHART_DIR) --set agentName=test
@@ -25,6 +25,14 @@ test:
 #   nix-shell -p kubernetes-helm jq "python3.withPackages(p: [p.pyyaml])" --run "make test-shell"
 test-shell:
 	bash $(CHART_DIR)/tests/shell/run.sh
+
+# Pins the startup script's init ORDERING contract — the sequence is
+# load-bearing (snapshot restore MUST precede the skill/workspace writes, or
+# rclone sync deletes them) and nothing else in the suite would catch a
+# re-ordering regression. Issue #9. Run before/after any edit that moves a
+# section of the inline script.
+test-ordering:
+	python3 $(CHART_DIR)/tests/ordering/check-ordering.py
 
 template:
 	helm template $(RELEASE_NAME) $(CHART_DIR) -f examples/standard.yaml
