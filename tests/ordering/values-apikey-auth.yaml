@@ -1,0 +1,26 @@
+# Fixture for tests/ordering/check-ordering.py ONLY.
+#
+# Exercises the api_key auth branch. `agent.auth.provider` defaults to
+# anthropic-oauth and no file under examples/ or ci/ selects anything else, so
+# the `Bootstrap agent auth from API key (...)` section never rendered — it was
+# the one section in the chart that no fixture could reach, and its NORMALISE
+# entry was therefore dead.
+#
+# Note this branch is mutually exclusive with the Claude-credentials bootstrap,
+# so this fixture's ledger swaps one for the other rather than adding to it.
+#
+# Deliberately NOT in ci/: render-diff and byte-diff glob ci/*.yaml, and a
+# fixture whose purpose is to change the rendered config is exactly what those
+# gates are built to flag.
+agentName: apikeybot
+existingSecret: devpod-secrets
+
+git:
+  repos:
+    - url: "git@github.com:yourorg/myproject.git"
+      path: "/data/repos/myproject"
+      branch: "main"
+
+agent:
+  auth:
+    provider: openrouter

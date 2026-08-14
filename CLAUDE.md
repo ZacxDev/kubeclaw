@@ -369,6 +369,7 @@ Scheduled saves run with `ionice -c3 nice -n 19` for low-priority I/O. Restore a
 make lint           # helm lint
 make test           # 189 helm-unittest tests
 make test-shell     # runtime tests of the rendered startup script
+make test-ordering  # pins the startup script's init ordering contract
 make render-diff    # semantic diff of generated openclaw.json vs trunk
 make byte-diff      # full-manifest byte diff vs trunk (version normalised)
 make template       # render standard example
@@ -378,7 +379,7 @@ make template-fleet # render the three-agent fleet example
 
 ### Testing
 
-Three tiers — **all must be green**; they cover structurally different things.
+Four tiers — **all must be green**; they cover structurally different things.
 
 **Tier 1 — `make test` (helm-unittest, 189 tests in 19 files).** Asserts on rendered template text. Install the plugin with:
 ```bash
@@ -402,7 +403,27 @@ helm plugin install https://github.com/helm-unittest/helm-unittest.git
 - **Skill prune** — a chart-managed skill removed from values is pruned while an unmanaged/agent-authored one survives; first boot (no manifest) prunes nothing and then writes the manifest.
 - **Config-revert detection** — `warn` on a revert emits banner + sentinel and exits 0; `fail` does the same and exits 1; a doctor run that *accepted* the config (mutating it but preserving the chart's scalars) stays silent. That last case is what broke the original file-hash approach and motivated the semantic check.
 
-**Tier 3 — `make render-diff`.** Neither tier above can catch a change to config *generation* that keeps every assertion passing while altering what the agent actually runs. This renders the chart against all ten value files in the repo (`examples/`, `examples/fleet/`, `ci/`), extracts `data["openclaw.json"]`, parses it, and deep-compares against a git ref (`REF=`, default `trunk`).
+**Tier 3 — `make test-ordering`.** The container command is one ~1,000-line sequential block whose ordering is load-bearing, and no other tier observes *sequence*: helm-unittest asserts on text without regard to order, and `make test-shell` executes two blocks in isolation rather than in the sequence they live in.
+
+Two independent checks, because they fail on different things:
+
+| Check | Fails when | Why it's separate |
+|-------|-----------|-------------------|
+| **Ledger** | a section is added or removed | A new section isn't necessarily wrong, but it must not slip in without someone deciding where it belongs. The failure says "declare a constraint or update the ledger". |
+| **Constraints** | a section *moves* | Pairwise "A precedes B", each with a reason verified against the code. Robust to insertions, unlike pinning the whole sequence, so it doesn't fire on benign additions. |
+
+Two more guards exist because the first two aren't sufficient on their own:
+
+- **TERMINAL** — the gateway loop is `while true; do openclaw gateway ...; done` and never returns, so anything after it is dead code. "A precedes B" *cannot express "B actually runs"*, so a section moved past the gateway satisfied every constraint naming it. Pinning the loop last constrains all other sections at once.
+- **UNIQUE** — duplicate markers are FATAL. Position is keyed by marker text, so a duplicate made ordering last-wins and a *copy* placed ahead of its dependency passed.
+
+Checked against **four** value files so a constraint isn't confirmed by a single feature combination — which matters: a section moved into a disabled conditional reads as *disappeared* under `examples/standard.yaml` and as an *order violation* under `ci/full-values.yaml`. Two fixtures live in `tests/ordering/` rather than `ci/` precisely so they stay out of render-diff/byte-diff's globs: they exist to change the rendered script, which those gates are built to flag.
+
+The load-bearing constraint is `Snapshot restore` → `Skills` / `Workspace files` / `Workspace content`: `rclone sync` during restore deletes files absent from the snapshot, so ConfigMap-sourced files must be written after it. Then `Detect silent config revert` → `Strip channels` (the strip rewrites `openclaw.json`, so detection can't otherwise tell a revert from a strip), and `SSH setup` → `Repo clone/pull` (every `git.repos[].url` in the repo is SSH form, so without the key every clone fails host-key verification and `set -e` crash-loops the pod).
+
+**The check self-tests inline on every run.** Every guard is a conditional a one-character edit turns inert — `if TERMINAL in found` → `not in` leaves the dead-code check permanently silent while the run still prints `OK`. So `selftest()` drives each guard with synthetic marker lists and asserts it produces *its own* error; six guard-neutering mutations were confirmed caught. An unexercised constraint is also FATAL, which is what stops the `--print` workflow becoming a rubber stamp: renaming a marker and regenerating the ledger used to drop coverage 19 → 15 checks while still reporting OK.
+
+**Tier 4 — `make render-diff`.** Neither tier above can catch a change to config *generation* that keeps every assertion passing while altering what the agent actually runs. This renders the chart against all ten value files in the repo (`examples/`, `examples/fleet/`, `ci/`), extracts `data["openclaw.json"]`, parses it, and deep-compares against a git ref (`REF=`, default `trunk`).
 
 Run it before/after **any** edit to `configmap.yaml` or `_helpers.tpl`.
 

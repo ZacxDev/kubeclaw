@@ -1,0 +1,21 @@
+# Fixture for tests/ordering/check-ordering.py ONLY.
+#
+# Exists so the `Extra init commands` -> `Gateway restart loop` constraint is
+# actually exercised. extraInitCommands defaults to "" and no file under
+# examples/ or ci/ sets it, so that section never rendered and the constraint
+# ran ZERO times — a declaration, not a check.
+#
+# Deliberately NOT in ci/: render-diff and byte-diff glob ci/*.yaml, and this
+# file exists to change the rendered startup script, which is exactly what
+# those gates are built to flag.
+agentName: orderbot
+existingSecret: devpod-secrets
+
+git:
+  repos:
+    - url: "git@github.com:yourorg/myproject.git"
+      path: "/data/repos/myproject"
+      branch: "main"
+
+extraInitCommands: |
+  echo "ordering fixture: extra init commands ran"

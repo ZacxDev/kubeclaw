@@ -97,6 +97,13 @@ jobs:
             exit 1
           fi
 
+      # The inline startup script's ordering is load-bearing (snapshot restore
+      # must precede the skill/workspace writes, or rclone deletes them) and no
+      # other tier observes sequence at all. Fails loudly rather than silently
+      # if the marker format changes, so it cannot pass while testing nothing.
+      - name: Init ordering contract
+        run: make test-ordering
+
       # Which ref the diff gates compare against.
       #   PR   -> the merge commit's FIRST PARENT, i.e. exactly the base commit
       #           this merge was computed against. Re-resolving the base branch
