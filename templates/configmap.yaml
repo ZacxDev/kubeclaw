@@ -123,10 +123,24 @@
       },
       "tools": {
         "web": {
+          {{- /*
+            Emit provider/maxResults ONLY when search is enabled. openclaw
+            validates tools.web.search.provider even when enabled is false, and
+            refuses to start if the named provider's plugin is absent:
+              Config validation failed: tools.web.search.provider:
+              web_search provider is not available: brave
+            Because provider defaults to "brave" in values.yaml, every agent
+            that turned search OFF still got a brave provider it could not
+            satisfy — a crash-loop the operator cannot fix by any value they
+            set, since no value removes the key. Naming a provider for a
+            disabled feature is meaningless anyway.
+          */}}
           "search": {
-            "enabled": {{ .Values.tools.web.search.enabled }},
+            "enabled": {{ .Values.tools.web.search.enabled }}
+            {{- if .Values.tools.web.search.enabled }},
             "provider": {{ .Values.tools.web.search.provider | quote }},
             "maxResults": {{ .Values.tools.web.search.maxResults }}
+            {{- end }}
           }
         }
       },
