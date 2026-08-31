@@ -12,6 +12,37 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-08-31
+
+Ships the #18 fix to consumers. **The template change alone could not reach any
+cluster**: every HelmChart built from this repo uses Flux's
+`reconcileStrategy: ChartVersion`, so source-controller repackages only when the
+`version` below changes. Measured after #18 merged — the GitRepository artifact
+advanced to `0d1ee8aa`, while both live HelmChart artifacts stayed stamped
+`2026-08-13T19:52:04Z` and kept serving the old template. A chart fix without a
+version bump is inert here; that is what this release is for.
+
+### Fixed
+- **`tools.web.search.provider` is no longer emitted when search is disabled**
+  (#18). OpenClaw validates that field even when `enabled` is `false` and
+  refuses to start if the named provider's plugin is absent. Because
+  `values.yaml` defaults `provider: "brave"`, **every agent that turned search
+  off still got a brave provider it could not satisfy** — and no value an
+  operator could set avoided it, since no value removes the key. The gateway
+  crash-looped on a config the operator had no way to correct.
+
+  Measured impact before the fix: both live devpods (`initiatives`,
+  `task-drafter`) sat `NotReady` for ~4 days at **4423** and **4386** restarts.
+
+  ⚠ **Upgrade note for anyone whose agent has been crash-looping on this.** A
+  pod that survived by falling back to `openclaw.json.last-good` has been
+  running a *frozen* config and silently ignoring chart changes — `openclaw
+  doctor` rejects each newly generated config and restores the snapshot, while
+  the pod still reports `Ready`. Readiness therefore reports the fallback's
+  health, not the config you shipped. After upgrading, verify that the rendered
+  ConfigMap and the running `/root/.openclaw/openclaw.json` **agree** rather
+  than that the pod is up.
+
 ## [0.8.0] — 2026-08-13
 
 Composable config. `openclaw.json` can now be adjusted key-by-key instead of
