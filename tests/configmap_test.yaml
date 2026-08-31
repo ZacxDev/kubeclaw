@@ -358,3 +358,50 @@ tests:
       - notMatchRegex:
           path: data["openclaw.json"]
           pattern: '"matrix"\s*:\s*\{'
+
+  # --- tools.web.search: provider must not be emitted when search is OFF ---
+  # Regression: openclaw validates tools.web.search.provider even when enabled
+  # is false, so the values.yaml default of "brave" crash-looped every agent
+  # that disabled search. Both devpods sat NotReady for ~4 days on this.
+  - it: should NOT emit a search provider when web search is disabled
+    set:
+      tools:
+        web:
+          search:
+            enabled: false
+            provider: brave
+            maxResults: 3
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"search":\s*\{\s*"enabled":\s*false\s*\}'
+      - notMatchRegex:
+          path: data["openclaw.json"]
+          pattern: '"provider":\s*"brave"'
+
+  - it: should still emit provider and maxResults when web search is enabled
+    set:
+      tools:
+        web:
+          search:
+            enabled: true
+            provider: brave
+            maxResults: 5
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"provider":\s*"brave"'
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"maxResults":\s*5'
+
+  - it: should emit valid JSON in both search states
+    set:
+      tools:
+        web:
+          search:
+            enabled: false
+    asserts:
+      - matchRegex:
+          path: data["openclaw.json"]
+          pattern: '"tools":'
