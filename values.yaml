@@ -38,12 +38,16 @@ git:
   # -- Background auto-pull loop for workspace repos.
   # Keeps repos in sync with their remote branches without requiring
   # /git pull from Matrix or a pod restart. Safe by design:
-  #   - Skips entirely when the working tree is dirty (agent WIP
-  #     or untracked files present).
+  #   - Skips entirely when the working tree has modified TRACKED files
+  #     (agent WIP). Untracked files do not block a pull.
   #   - Only pulls when origin has actually advanced (fetch-then-compare).
   #   - Uses --rebase --autostash on pull (defensive; dirty-skip
   #     already filters WIP).
-  #   - Logs only on actual state changes — silent on no-op cycles.
+  #   - Silent on no-op cycles, but NOT on a dirty-skip: entering and
+  #     leaving the skip state each log one line to /tmp/git-sync.log and
+  #     toggle a /tmp/git-sync-dirty.* marker. A dirty-skip lasts until a
+  #     human clears the tree, and a silent one froze a production agent's
+  #     clone for 102 days before anyone noticed.
   autoPull:
     # -- Enable the background git auto-pull loop.
     enabled: true

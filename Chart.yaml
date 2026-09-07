@@ -2,7 +2,7 @@ apiVersion: v2
 name: kubeclaw
 description: A lightweight, composable Kubernetes control plane for OpenClaw AI agents
 type: application
-version: 0.8.1
+version: 0.8.2
 appVersion: "latest"
 maintainers:
   - name: Zach
