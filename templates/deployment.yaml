@@ -107,6 +107,10 @@ spec:
               #   - Dirty-skip: if the working tree has uncommitted changes OR
               #     untracked files (agent WIP), skip the pull entirely.
               #     Never rebase over active work.
+              #   - Visible dirty-skip: a skip lasts until a human clears the
+              #     tree, so entering and leaving that state is logged once
+              #     each and leaves a /tmp/git-sync-dirty.* marker. See the
+              #     block below for the incident this exists for.
               #   - Fetch-then-compare: only pull when origin has actually
               #     advanced. Zero log noise on the common no-change path.
               #   - Rebase + autostash on pull (belt-and-suspenders given
@@ -153,8 +157,32 @@ spec:
                       # files (.openclaw/, AGENTS.md, HEARTBEAT.md, etc.) that
                       # are never committed. Untracked files don't interfere
                       # with `git pull --rebase` which only touches tracked content.
+                      #
+                      # A dirty-skip is PERMANENT until a human clears the tree,
+                      # and it used to be SILENT — the loop kept running, logged
+                      # nothing, and looked healthy. Measured on the civitai
+                      # devops-agent: one tracked edit left behind at
+                      # 2026-05-28T17:03Z froze its clone for 102 days (8,293
+                      # commits, 47 skills on disk vs 70 upstream) and nobody
+                      # could have seen it without exec'ing into the pod and
+                      # running git by hand. So log the TRANSITION in and out of
+                      # the skip state — one line each, naming what blocks it —
+                      # and leave a marker file that answers "stuck since when?".
+                      # Transitions, not every iteration: a per-iteration line
+                      # would be 288 lines/day of noise that nobody reads either.
+                      DIRTY_MARK="/tmp/git-sync-dirty.$(printf '%s' "$REPO_PATH" | tr -c 'A-Za-z0-9' '_')"
                       if ! git diff --quiet HEAD 2>/dev/null; then
+                        if [ ! -f "$DIRTY_MARK" ]; then
+                          DIRTY_FILES=$(git diff --name-only HEAD 2>/dev/null)
+                          DIRTY_N=$(printf '%s\n' "$DIRTY_FILES" | grep -c .)
+                          date -Iseconds > "$DIRTY_MARK" 2>/dev/null
+                          echo "[$(date -Iseconds)] git-sync: SKIPPING $REPO_PATH until its tree is clean — $DIRTY_N dirty tracked file(s): $(printf '%s' "$DIRTY_FILES" | head -20 | tr '\n' ' ')"
+                        fi
                         continue
+                      fi
+                      if [ -f "$DIRTY_MARK" ]; then
+                        echo "[$(date -Iseconds)] git-sync: $REPO_PATH clean again, resuming (was skipping since $(cat "$DIRTY_MARK" 2>/dev/null))"
+                        rm -f "$DIRTY_MARK"
                       fi
 
                       # Fetch first; on failure log and skip this repo

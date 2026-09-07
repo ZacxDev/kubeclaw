@@ -172,6 +172,105 @@ fi
 rm -rf "$SB"
 
 # ---------------------------------------------------------------------------
+echo "== Gap D: the auto-pull dirty-skip must be VISIBLE =="
+
+# A dirty-skip lasts until a human clears the tree, and it used to log nothing.
+# Measured: one tracked edit left in the civitai devops-agent's clone at
+# 2026-05-28T17:03Z froze it for 102 days while the loop kept cycling normally.
+# These cases pin that a skip announces itself ONCE, names what blocks it, stays
+# quiet on subsequent cycles, and says so when it resumes.
+
+GS_SB="$(mktemp -d)"
+GS_ORIGIN="$GS_SB/origin.git"
+GS_REPO="$GS_SB/data/repos/fixture"
+GS_LOG="$GS_SB/tmp/git-sync.log"
+gitq() { git -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false "$@"; }
+
+mkdir -p "$GS_SB/tmp" "$GS_SB/config" "$GS_SB/data/repos"
+gitq init --quiet --bare -b main "$GS_ORIGIN"
+gitq init --quiet -b main "$GS_SB/seed"
+gitq -C "$GS_SB/seed" remote add origin "$GS_ORIGIN"
+printf 'v1\n' > "$GS_SB/seed/tracked.txt"
+gitq -C "$GS_SB/seed" add tracked.txt
+gitq -C "$GS_SB/seed" commit --quiet -m seed
+gitq -C "$GS_SB/seed" push --quiet -u origin main
+gitq clone --quiet -b main "$GS_ORIGIN" "$GS_REPO"
+gitq -C "$GS_REPO" config user.email t@example.invalid
+gitq -C "$GS_REPO" config user.name t
+printf '[{"url":"%s","path":"%s","branch":"main"}]\n' "$GS_ORIGIN" "$GS_REPO" \
+  > "$GS_SB/config/repos.json"
+
+gs_advance() {  # push one commit so there is always something to pull
+  printf '%s\n' "$1" >> "$GS_SB/seed/tracked.txt"
+  gitq -C "$GS_SB/seed" commit --quiet -am "$1"
+  gitq -C "$GS_SB/seed" push --quiet origin main
+}
+gs_run() {  # $1 = number of loop cycles to execute
+  python3 "$HERE/extract_block.py" --block gitsync \
+    | sed -e "s#/config/repos.json#${GS_SB}/config/repos.json#g" \
+          -e "s#/tmp/git-sync#${GS_SB}/tmp/git-sync#g" \
+    > "$GS_SB/block.sh"
+  GIT_SYNC_ITERS="$1" sh "$GS_SB/block.sh" >/dev/null 2>&1
+}
+gs_head()   { gitq -C "$GS_REPO" rev-parse HEAD; }
+gs_remote() { gitq -C "$GS_SB/seed" rev-parse HEAD; }
+gs_marks()  { ls "$GS_SB"/tmp/git-sync-dirty.* 2>/dev/null | wc -l | tr -d ' '; }
+# `grep -c` PRINTS 0 and EXITS 1 on no match, so a `|| echo 0` fallback emits
+# "0\n0" and every arithmetic comparison downstream errors out. Guard on the
+# file existing instead, and let grep's own 0 stand.
+gs_skips()  { [ -f "$GS_LOG" ] || { echo 0; return; }; grep -c 'git-sync: SKIPPING' "$GS_LOG"; }
+
+# --- clean tree pulls. Invariant guard: this passed before this change too,
+#     and is here so a failure elsewhere in Gap D can be attributed. ---
+gs_advance c1
+gs_run 1
+if grep -q 'git-sync: pulled' "$GS_LOG" && [ "$(gs_head)" = "$(gs_remote)" ]; then
+  ok "clean tree pulls (invariant guard, not regression coverage)"
+else
+  bad "clean tree did not pull"
+fi
+
+# --- dirty tracked file: the skip must announce itself and name the file ---
+gs_advance c2
+printf 'agent WIP\n' >> "$GS_REPO/tracked.txt"
+GS_BEFORE="$(gs_head)"
+gs_run 1
+if [ "$(gs_skips)" -ge 1 ]; then ok "dirty tree announces the skip"; else bad "dirty-skip was SILENT"; fi
+if grep 'git-sync: SKIPPING' "$GS_LOG" 2>/dev/null | grep -q 'tracked.txt'; then
+  ok "skip names the blocking file"
+else
+  bad "skip does not name the blocking file"
+fi
+if [ "$(gs_marks)" = "1" ]; then ok "stuck-since marker written"; else bad "no stuck-since marker"; fi
+if [ "$(gs_head)" = "$GS_BEFORE" ]; then ok "dirty tree still not pulled over"; else bad "dirty tree WAS pulled over"; fi
+
+# --- still dirty, 3 more cycles: transition-logged, not per-cycle ---
+gs_advance c3
+gs_run 3
+GS_N="$(gs_skips)"
+if [ "$GS_N" = "1" ]; then
+  ok "skip logs once, not once per cycle (3 further cycles added 0 lines)"
+else
+  bad "expected exactly 1 SKIPPING line after 4 dirty cycles, got $GS_N"
+fi
+
+# --- tree cleaned: resume is announced, marker cleared, pull happens ---
+gitq -C "$GS_REPO" checkout -- tracked.txt
+gs_run 1
+if grep -q 'clean again, resuming' "$GS_LOG"; then ok "resume is announced"; else bad "resume not announced"; fi
+if [ "$(gs_marks)" = "0" ]; then ok "marker cleared on resume"; else bad "marker not cleared on resume"; fi
+if [ "$(gs_head)" = "$(gs_remote)" ]; then ok "pull resumes once the tree is clean"; else bad "did not pull after cleaning"; fi
+
+# --- untracked runtime files must NOT block a pull (the tracked/untracked
+#     distinction the dirty-skip comment claims) ---
+gs_advance c4
+printf 'runtime\n' > "$GS_REPO/HEARTBEAT.md"
+gs_run 1
+if [ "$(gs_head)" = "$(gs_remote)" ]; then ok "untracked runtime file does not block the pull"; else bad "untracked file blocked the pull"; fi
+if [ "$(gs_marks)" = "0" ]; then ok "untracked file writes no stuck marker"; else bad "untracked file wrongly marked stuck"; fi
+rm -rf "$GS_SB"
+
+# ---------------------------------------------------------------------------
 echo
 printf 'RESULT: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

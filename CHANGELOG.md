@@ -12,6 +12,57 @@ each release for the values to adopt and the boilerplate that can be removed.
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-09-07
+
+### Fixed
+- **The auto-pull loop's dirty-skip is no longer silent.** `git.autoPull` skips a
+  repo whose *tracked* files are modified, so it never rebases over agent WIP.
+  That skip is correct, but it lasts until a human clears the tree and it logged
+  **nothing** — the loop kept cycling, `/tmp/git-sync.log` kept showing only
+  `loop entered`, and the pod looked healthy.
+
+  Measured on the civitai `devops-agent` (`devpod-devops/devops-devpod`): one
+  tracked edit left in `/data/repos/talos-infra` at **2026-05-28T17:03:14Z**,
+  8m17s after the last successful pull, froze the clone for **102 days**. By
+  2026-09-07 it held HEAD `9a725ec00` (2026-05-25) against a `trunk` that had
+  moved **8,293 commits**, and **47** skill directories on disk against **70**
+  upstream — while the loop ran normally the whole time. Nobody could have seen
+  it without exec'ing into the pod and running `git` by hand.
+
+  The loop now logs the **transition** into and out of the skip state — one line
+  each, naming the blocking files — and maintains a `/tmp/git-sync-dirty.<repo>`
+  marker holding the timestamp the skip began. Transitions rather than every
+  cycle: a per-cycle line is 288/day of noise nobody reads either.
+
+  ```
+  [<ts>] git-sync: SKIPPING /data/repos/x until its tree is clean — 1 dirty tracked file(s): a.yaml
+  [<ts>] git-sync: /data/repos/x clean again, resuming (was skipping since <ts>)
+  ```
+
+  ⚠ **This makes a stuck clone diagnosable, not self-healing.** A dirty-skip is
+  still permanent until someone clears the tree; the loop deliberately never
+  discards an agent's uncommitted work. Detection still requires reading the log
+  or the marker file, so an operator-facing alert on
+  `/tmp/git-sync-dirty.*` age remains unbuilt.
+
+### Upgrade notes
+- **No values changes; nothing to adopt.** `git.autoPull` keys are untouched and
+  its defaults are unchanged.
+- Verified backward-compatible: `make render-diff REF=<prev>` is **11/11
+  identical** (the generated `openclaw.json` does not change) and the rendered
+  `checksum/config` annotation is **byte-identical**, so this release triggers no
+  config-hash rolling restart. The rendered Deployment diff is **purely
+  additive** — 28 lines added, 0 removed, all inside the startup script's
+  dirty-skip block. Pods still roll on upgrade, because the pod template itself
+  changed; that roll is what delivers the fix.
+- As in 0.8.1: consumers pin `reconcileStrategy: ChartVersion`, so bumping the
+  chart ref is what makes this reach a cluster.
+- To check any agent after upgrading:
+  ```bash
+  kubectl exec -n <ns> deploy/<agent> -c agent -- \
+    sh -c 'cat /tmp/git-sync.log; ls -l /tmp/git-sync-dirty.* 2>/dev/null'
+  ```
+
 ## [0.8.1] — 2026-08-31
 
 Ships the #18 fix to consumers. **The template change alone could not reach any
