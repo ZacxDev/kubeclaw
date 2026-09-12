@@ -271,6 +271,162 @@ if [ "$(gs_marks)" = "0" ]; then ok "untracked file writes no stuck marker"; els
 rm -rf "$GS_SB"
 
 # ---------------------------------------------------------------------------
+echo "== Gap E: a sync FAILURE must ESCAPE the pod, once =="
+
+# Gap D made a dirty-skip visible IN THE LOG FILE. The file is inside the pod,
+# and this subshell's stdout is an orphaned pipe, so no alert, Loki query or
+# dashboard can reach either. MEASURED 2026-09-12 on the civitai
+# support-drafter agent: 1,206 `pull failed` lines in /tmp/git-sync.log, 0 on
+# the container log stream. These cases pin that a failure TRANSITION also
+# reaches $GIT_SYNC_ALERT_SINK (which is /proc/1/fd/1 in the pod, i.e. PID 1's
+# stdout = the container log stream), exactly once, and that recovery says so.
+
+GE_SB="$(mktemp -d)"
+GE_ORIGIN="$GE_SB/origin.git"
+GE_REPO="$GE_SB/data/repos/fixture"
+GE_LOG="$GE_SB/tmp/git-sync.log"
+GE_SINK="$GE_SB/tmp/alert-sink.log"
+
+mkdir -p "$GE_SB/tmp" "$GE_SB/config" "$GE_SB/data/repos"
+gitq init --quiet --bare -b main "$GE_ORIGIN"
+gitq init --quiet -b main "$GE_SB/seed"
+gitq -C "$GE_SB/seed" remote add origin "$GE_ORIGIN"
+printf 'v1\n' > "$GE_SB/seed/tracked.txt"
+gitq -C "$GE_SB/seed" add tracked.txt
+gitq -C "$GE_SB/seed" commit --quiet -m seed
+gitq -C "$GE_SB/seed" push --quiet -u origin main
+gitq clone --quiet -b main "$GE_ORIGIN" "$GE_REPO"
+gitq -C "$GE_REPO" config user.email t@example.invalid
+gitq -C "$GE_REPO" config user.name t
+printf '[{"url":"%s","path":"%s","branch":"main"}]\n' "$GE_ORIGIN" "$GE_REPO" \
+  > "$GE_SB/config/repos.json"
+
+# `[ -w ]` is false for a path that does not exist, so the loop degrades to
+# file-only unless the sink is already there. In the pod /proc/1/fd/1 always is.
+: > "$GE_SINK"
+
+ge_run() {
+  python3 "$HERE/extract_block.py" --block gitsync \
+    | sed -e "s#/config/repos.json#${GE_SB}/config/repos.json#g" \
+          -e "s#/tmp/git-sync#${GE_SB}/tmp/git-sync#g" \
+    > "$GE_SB/block.sh"
+  GIT_SYNC_ITERS="$1" GIT_SYNC_ALERT_SINK="$GE_SINK" sh "$GE_SB/block.sh" >/dev/null 2>&1
+}
+ge_sink_n() { [ -f "$GE_SINK" ] || { echo 0; return; }; grep -c "$1" "$GE_SINK"; }
+ge_log_n()  { [ -f "$GE_LOG" ]  || { echo 0; return; }; grep -c "$1" "$GE_LOG"; }
+ge_advance() {
+  printf '%s\n' "$1" >> "$GE_SB/seed/tracked.txt"
+  gitq -C "$GE_SB/seed" commit --quiet -am "$1"
+  gitq -C "$GE_SB/seed" push --quiet origin main
+}
+
+# --- POSITIVE CONTROL FIRST. Without it, every "0 in the sink" below is
+#     indistinguishable from a sink wired to nothing. A clean pull must reach
+#     the log file, proving the loop ran at all. ---
+ge_advance e1
+ge_run 1
+if [ "$(ge_log_n 'git-sync: pulled')" -ge 1 ]; then
+  ok "POSITIVE CONTROL: the loop ran and pulled (so later zeros mean something)"
+else
+  bad "POSITIVE CONTROL FAILED: the loop never pulled; nothing below is evidence"
+fi
+
+# --- Reproduce the REAL failure mechanism, not a synthetic one: an untracked
+#     file in the clone that upstream later starts TRACKING. That is what both
+#     live broken agents hit (.claude/skills/**/package-lock.json). ---
+printf 'local copy\n' > "$GE_REPO/collide.txt"          # untracked in the clone
+printf 'upstream copy\n' > "$GE_SB/seed/collide.txt"    # now tracked upstream
+gitq -C "$GE_SB/seed" add collide.txt
+gitq -C "$GE_SB/seed" commit --quiet -m collide
+gitq -C "$GE_SB/seed" push --quiet origin main
+
+ge_run 1
+if [ "$(ge_log_n 'pull failed')" -ge 1 ]; then
+  ok "the untracked-file collision really does fail the pull (fixture is real)"
+else
+  bad "fixture did not reproduce a pull failure — the cases below prove nothing"
+fi
+if [ "$(ge_sink_n 'git-sync: FAILING')" = "1" ]; then
+  ok "the failure ESCAPES to the alert sink"
+else
+  bad "failure did NOT reach the alert sink (got $(ge_sink_n 'git-sync: FAILING'))"
+fi
+
+# --- 3 more failing cycles: the ALERT is transition-only, while the file keeps
+#     its per-cycle history. A per-cycle alert is noise nobody reads either. ---
+ge_run 3
+GE_ALERTS="$(ge_sink_n 'git-sync: FAILING')"
+GE_FILE_N="$(ge_log_n 'pull failed')"
+if [ "$GE_ALERTS" = "1" ]; then
+  ok "alert fires ONCE across 4 failing cycles (transition, not per-cycle)"
+else
+  bad "expected exactly 1 FAILING alert after 4 failing cycles, got $GE_ALERTS"
+fi
+if [ "$GE_FILE_N" -ge 4 ]; then
+  ok "the per-cycle line still lands in the log file ($GE_FILE_N lines)"
+else
+  bad "per-cycle history was lost from the file (got $GE_FILE_N)"
+fi
+# 🔴 Match the per-cycle line's OWN prefix, not the bare words. The alert text
+#    deliberately quotes the reason ("... — pull failed (conflict?)"), so a
+#    grep for `pull failed` matches the ALERT as well and this guard failed
+#    against correct behaviour the first time it ran. A guard whose pattern can
+#    match its own sibling is measuring the wrong thing.
+if [ "$(ge_sink_n 'git-sync: pull failed for')" = "0" ]; then
+  ok "the per-cycle line does NOT reach the sink (no alert spam)"
+else
+  bad "per-cycle 'git-sync: pull failed for' leaked to the alert sink"
+fi
+
+# --- Recovery: clear the collision, and the way OUT must be announced too. An
+#     alert you cannot see clear is one an operator has to chase by hand. ---
+rm -f "$GE_REPO/collide.txt"
+ge_run 1
+if [ "$(ge_sink_n 'RECOVERED')" = "1" ]; then
+  ok "recovery is announced on the sink"
+else
+  bad "recovery was not announced (got $(ge_sink_n 'RECOVERED'))"
+fi
+if ls "$GE_SB"/tmp/git-sync-failed.* >/dev/null 2>&1; then
+  bad "failure marker not cleared after recovery"
+else
+  ok "failure marker cleared after recovery"
+fi
+
+# --- A dirty-skip must reach the sink too: it is the failure mode #20 was
+#     written for, and it had the same escape problem. ---
+: > "$GE_SINK"
+ge_advance e2
+printf 'agent WIP\n' >> "$GE_REPO/tracked.txt"
+ge_run 1
+if [ "$(ge_sink_n 'git-sync: SKIPPING')" = "1" ]; then
+  ok "a dirty-skip also escapes to the sink"
+else
+  bad "dirty-skip did not reach the sink (got $(ge_sink_n 'git-sync: SKIPPING'))"
+fi
+
+# --- NEGATIVE CONTROL: with no sink configured the loop must still work and
+#     still write its file. A pod where /proc/1/fd/1 is unwritable must not
+#     lose its local log, and must not crash the loop. ---
+GE_SINK_SAVED="$GE_SINK"
+GE_SINK="$GE_SB/tmp/definitely-absent.log"   # never created => `[ -w ]` false
+gitq -C "$GE_REPO" checkout -- tracked.txt
+ge_advance e3
+ge_run 1
+if [ "$(ge_log_n 'git-sync: pulled')" -ge 2 ]; then
+  ok "NEGATIVE CONTROL: an unreachable sink does not break the loop or its file"
+else
+  bad "loop stopped working when the alert sink was unreachable"
+fi
+if [ -f "$GE_SINK" ]; then
+  bad "the loop CREATED the sink path; it must only ever append to an existing one"
+else
+  ok "an absent sink is left absent (no stray file in the pod)"
+fi
+GE_SINK="$GE_SINK_SAVED"
+rm -rf "$GE_SB"
+
+# ---------------------------------------------------------------------------
 echo
 printf 'RESULT: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
