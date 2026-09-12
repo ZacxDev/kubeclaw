@@ -242,7 +242,27 @@ spec:
                       LOCAL=$(git rev-parse HEAD 2>/dev/null)
                       REMOTE=$(git rev-parse "origin/$REPO_BRANCH" 2>/dev/null)
                       if [ -z "$LOCAL" ] || [ -z "$REMOTE" ]; then continue; fi
-                      if [ "$LOCAL" = "$REMOTE" ]; then continue; fi
+                      # 🔴 RECOVERY IS CHECKED HERE TOO, NOT ONLY AFTER A PULL.
+                      # This `continue` used to fire BEFORE the recovery branch
+                      # below, so a repo that became current WITHOUT this loop
+                      # doing the pull — an operator fixing it by hand, or the
+                      # blocker clearing while upstream happened not to move —
+                      # kept its failure marker forever and never announced
+                      # RECOVERED. MEASURED 2026-09-12 on the civitai
+                      # support-agent: after a hand-pull took it to behind=0 it
+                      # sat at `behind=0` with /tmp/git-sync-failed._data_repos_
+                      # civitai still present and no recovery line, while the
+                      # operator had no way to tell from the log that it was
+                      # fixed. Up-to-date IS not-failing, by definition, so say
+                      # so here. Found by using the feature this file shipped
+                      # two hours earlier, not by review.
+                      if [ "$LOCAL" = "$REMOTE" ]; then
+                        if [ -f "$FAIL_MARK" ]; then
+                          alert "[$(date -Iseconds)] git-sync: $REPO_PATH RECOVERED (was failing since $(cat "$FAIL_MARK" 2>/dev/null)) — now up to date"
+                          rm -f "$FAIL_MARK"
+                        fi
+                        continue
+                      fi
 
                       if git pull --rebase --autostash --quiet origin "$REPO_BRANCH" 2>/dev/null; then
                         echo "[$(date -Iseconds)] git-sync: pulled $REPO_PATH ($LOCAL -> $REMOTE)"
