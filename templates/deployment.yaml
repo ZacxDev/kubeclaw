@@ -139,6 +139,37 @@ spec:
                   touch "$LOG_FILE" 2>/dev/null || LOG_FILE=/dev/null
                   exec >>"$LOG_FILE" 2>&1
 
+                  # --- A FAILURE NOBODY CAN SEE IS NOT A DIAGNOSABLE FAILURE.
+                  #     #20 made a dirty-skip announce itself IN THIS FILE, and
+                  #     the file is exactly what no alert, no Loki query and no
+                  #     dashboard can reach — see the comment above: this
+                  #     subshell's stdout is an orphaned pipe, and the `exec`
+                  #     right above sends everything to a path inside the pod.
+                  #     MEASURED 2026-09-12 on the civitai support-drafter
+                  #     agent: 1,206 `pull failed` lines in $LOG_FILE, 0 on the
+                  #     container's log stream. The repo had been failing to
+                  #     pull for months and every observation surface said
+                  #     nothing, because none of them CAN say anything.
+                  #     So "nothing reads the log" was too kind — nothing COULD.
+                  #
+                  #     PID 1's stdout IS the container log stream, and writing
+                  #     to it from here works: VERIFIED 2026-09-12 by writing a
+                  #     token to /proc/1/fd/1 inside a live agent container and
+                  #     reading it back out with `kubectl logs`. That is the one
+                  #     hop that turns this loop into something alertable.
+                  #
+                  #     🔴 TRANSITIONS ONLY. The per-cycle `pull failed` line
+                  #     below stays file-only on purpose: at a 300s interval it
+                  #     is 288 lines/day, and a per-cycle alert is how a signal
+                  #     becomes noise that nobody reads either — the exact
+                  #     failure #20 was written to avoid, one layer out.
+                  ALERT_SINK="${GIT_SYNC_ALERT_SINK:-/proc/1/fd/1}"
+                  if ! { [ -w "$ALERT_SINK" ] ; } 2>/dev/null; then ALERT_SINK=""; fi
+                  alert() {  # $1 = line. Always to the file; to the log stream when reachable.
+                    echo "$1"
+                    if [ -n "$ALERT_SINK" ]; then echo "$1" >> "$ALERT_SINK" 2>/dev/null || true; fi
+                  }
+
                   GIT_SYNC_INTERVAL={{ .Values.git.autoPull.intervalSeconds | default 300 }}
                   echo "[$(date -Iseconds)] git-sync: loop entered (interval: ${GIT_SYNC_INTERVAL}s, log: ${LOG_FILE})"
                   sleep 60  # initial delay — let gateway start, avoid thundering-herd
@@ -176,18 +207,35 @@ spec:
                           DIRTY_FILES=$(git diff --name-only HEAD 2>/dev/null)
                           DIRTY_N=$(printf '%s\n' "$DIRTY_FILES" | grep -c .)
                           date -Iseconds > "$DIRTY_MARK" 2>/dev/null
-                          echo "[$(date -Iseconds)] git-sync: SKIPPING $REPO_PATH until its tree is clean — $DIRTY_N dirty tracked file(s): $(printf '%s' "$DIRTY_FILES" | head -20 | tr '\n' ' ')"
+                          alert "[$(date -Iseconds)] git-sync: SKIPPING $REPO_PATH until its tree is clean — $DIRTY_N dirty tracked file(s): $(printf '%s' "$DIRTY_FILES" | head -20 | tr '\n' ' ')"
                         fi
                         continue
                       fi
                       if [ -f "$DIRTY_MARK" ]; then
-                        echo "[$(date -Iseconds)] git-sync: $REPO_PATH clean again, resuming (was skipping since $(cat "$DIRTY_MARK" 2>/dev/null))"
+                        alert "[$(date -Iseconds)] git-sync: $REPO_PATH clean again, resuming (was skipping since $(cat "$DIRTY_MARK" 2>/dev/null))"
                         rm -f "$DIRTY_MARK"
                       fi
+
+                      # A fetch/pull failure is PERSISTENT in practice — the two
+                      # live cases are untracked files upstream later began
+                      # tracking, which `git pull --rebase` refuses to clobber
+                      # every 5 minutes forever. So it gets the same treatment
+                      # as the dirty-skip: a marker answering "failing since
+                      # when?", and ONE alert on the transition in, one on the
+                      # way out. The per-cycle line below is unchanged and stays
+                      # in the file, so #20's assertions still hold.
+                      FAIL_MARK="/tmp/git-sync-failed.$(printf '%s' "$REPO_PATH" | tr -c 'A-Za-z0-9' '_')"
+                      gs_fail() {  # $1 = short reason
+                        if [ ! -f "$FAIL_MARK" ]; then
+                          date -Iseconds > "$FAIL_MARK" 2>/dev/null
+                          alert "[$(date -Iseconds)] git-sync: FAILING $REPO_PATH — $1. This repo is NOT being updated and will not recover on its own."
+                        fi
+                      }
 
                       # Fetch first; on failure log and skip this repo
                       if ! git fetch --quiet origin "$REPO_BRANCH" 2>/dev/null; then
                         echo "[$(date -Iseconds)] git-sync: fetch failed for $REPO_PATH"
+                        gs_fail "fetch failed"
                         continue
                       fi
 
@@ -198,8 +246,13 @@ spec:
 
                       if git pull --rebase --autostash --quiet origin "$REPO_BRANCH" 2>/dev/null; then
                         echo "[$(date -Iseconds)] git-sync: pulled $REPO_PATH ($LOCAL -> $REMOTE)"
+                        if [ -f "$FAIL_MARK" ]; then
+                          alert "[$(date -Iseconds)] git-sync: $REPO_PATH RECOVERED (was failing since $(cat "$FAIL_MARK" 2>/dev/null))"
+                          rm -f "$FAIL_MARK"
+                        fi
                       else
                         echo "[$(date -Iseconds)] git-sync: pull failed for $REPO_PATH (conflict?)"
+                        gs_fail "pull failed (conflict?)"
                       fi
                     done
                   done
