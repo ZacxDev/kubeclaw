@@ -393,6 +393,46 @@ else
   ok "failure marker cleared after recovery"
 fi
 
+# --- RECOVERY WHEN THE LOOP NEVER DOES THE PULL. The case above recovers
+#     THROUGH a loop-performed pull. This one is the other way a repo gets
+#     healthy: somebody fixes it out of band, so by the time the loop looks,
+#     LOCAL is already == REMOTE and there is nothing to pull. The `continue`
+#     for "already up to date" used to fire BEFORE the recovery branch, so the
+#     marker survived forever and no RECOVERED was ever announced.
+#     MEASURED on the civitai support-agent 2026-09-12: behind=0, marker still
+#     on disk, no recovery line — the operator could not tell from the log that
+#     the repo they had just fixed was fixed. Up-to-date IS not-failing.
+: > "$GE_SINK"
+rm -f "$GE_SB"/tmp/git-sync-failed.*
+# put it back into a FAILING state, and let the loop record that
+printf 'local copy\n' > "$GE_REPO/collide2.txt"
+printf 'upstream copy\n' > "$GE_SB/seed/collide2.txt"
+gitq -C "$GE_SB/seed" add collide2.txt
+gitq -C "$GE_SB/seed" commit --quiet -m collide2
+gitq -C "$GE_SB/seed" push --quiet origin main
+ge_run 1
+if [ "$(ge_sink_n 'git-sync: FAILING')" -ge 1 ] && ls "$GE_SB"/tmp/git-sync-failed.* >/dev/null 2>&1; then
+  ok "SETUP: repo is in a recorded FAILING state before the out-of-band fix"
+else
+  bad "SETUP FAILED: no FAILING state to recover from — the case below proves nothing"
+fi
+# fix it OUT OF BAND: clear the collision and pull BY HAND, so the loop finds
+# LOCAL == REMOTE and has nothing to do.
+rm -f "$GE_REPO/collide2.txt"
+gitq -C "$GE_REPO" pull --rebase --autostash --quiet origin main
+: > "$GE_SINK"
+ge_run 1
+if [ "$(ge_sink_n 'RECOVERED')" -ge 1 ]; then
+  ok "recovery is announced even when the loop itself never pulled"
+else
+  bad "no RECOVERED after an out-of-band fix — the marker will survive forever"
+fi
+if ls "$GE_SB"/tmp/git-sync-failed.* >/dev/null 2>&1; then
+  bad "failure marker survived an out-of-band recovery"
+else
+  ok "failure marker cleared after an out-of-band recovery"
+fi
+
 # --- A dirty-skip must reach the sink too: it is the failure mode #20 was
 #     written for, and it had the same escape problem. ---
 : > "$GE_SINK"
